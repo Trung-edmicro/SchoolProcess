@@ -72,7 +72,8 @@ class JSONToExcelTemplateConverter:
             else:
                 # Cấu trúc mới với school_info trực tiếp
                 school_info = self.json_data.get('school_info', {})
-                self.admin_password = school_info.get('admin_password', '123456')
+                # Sửa: password được lưu trong school_info.password, không phải admin_password
+                self.admin_password = school_info.get('password', '123456')
             
             self.school_name = school_info.get('name', 'Unknown School')
             self.admin_email = school_info.get('admin', '')
@@ -88,23 +89,49 @@ class JSONToExcelTemplateConverter:
             return False
     
     def extract_teachers_data(self):
-        """Trích xuất dữ liệu giáo viên từ JSON"""
+        """Trích xuất dữ liệu giáo viên từ JSON - hỗ trợ cả workflow và filtered format"""
         try:
-            teachers_data = self.json_data.get('teachers', {}).get('data', [])
+            print("   📊 Đang trích xuất dữ liệu giáo viên...")
+            
+            # Xử lý các format khác nhau của dữ liệu teachers
+            teachers_raw = self.json_data.get('teachers', [])
+            
+            if isinstance(teachers_raw, dict):
+                # Format workflow thường: {'data': [...]}
+                teachers_data = teachers_raw.get('data', [])
+                print(f"   📋 Phát hiện format workflow: {len(teachers_data)} giáo viên")
+            elif isinstance(teachers_raw, list):
+                # Format filtered: [...] trực tiếp
+                teachers_data = teachers_raw
+                print(f"   📋 Phát hiện format filtered: {len(teachers_data)} giáo viên")
+            else:
+                print(f"   ❌ Format dữ liệu teachers không được hỗ trợ: {type(teachers_raw)}")
+                return False
+            
+            if not teachers_data:
+                print("   ⚠️ Không có dữ liệu giáo viên")
+                return False
             
             teachers_list = []
             
             for idx, teacher_record in enumerate(teachers_data, 1):
-                teacher_info_data = teacher_record.get('teacherInfo', {})
-                
-                teacher_info = {
-                    'STT': idx,
-                    'Tên giáo viên': teacher_info_data.get('displayName', ''),
-                    'Ngày sinh': teacher_info_data.get('userBirthday', ''),
-                    'Tên đăng nhập': teacher_info_data.get('userName', ''),
-                    'Mật khẩu đăng nhập lần đầu': teacher_info_data.get('pwd', '')
-                }
-                teachers_list.append(teacher_info)
+                # Xử lý cấu trúc teacher record linh hoạt
+                if isinstance(teacher_record, dict):
+                    # Tìm teacherInfo trong các vị trí có thể
+                    teacher_info_data = (
+                        teacher_record.get('teacherInfo', {}) or 
+                        teacher_record.get('userInfo', {}) or 
+                        teacher_record
+                    )
+                    
+                    teacher_info = {
+                        'STT': idx,
+                        'Tên giáo viên': teacher_info_data.get('displayName', ''),
+                        'Ngày sinh': teacher_info_data.get('userBirthday', ''),
+                        'Tên đăng nhập': teacher_info_data.get('userName', ''),
+                        'Mật khẩu đăng nhập lần đầu': teacher_info_data.get('pwd', '')
+                    }
+                    teachers_list.append(teacher_info)
             
             self.teachers_df = pd.DataFrame(teachers_list)
             print(f"✅ Đã trích xuất {len(teachers_list)} giáo viên")
@@ -116,25 +143,51 @@ class JSONToExcelTemplateConverter:
             return False
     
     def extract_students_data(self):
-        """Trích xuất dữ liệu học sinh từ JSON"""
+        """Trích xuất dữ liệu học sinh từ JSON - hỗ trợ cả workflow và filtered format"""
         try:
-            students_data = self.json_data.get('students', {}).get('data', [])
+            print("   📊 Đang trích xuất dữ liệu học sinh...")
+            
+            # Xử lý các format khác nhau của dữ liệu students
+            students_raw = self.json_data.get('students', [])
+            
+            if isinstance(students_raw, dict):
+                # Format workflow thường: {'data': [...]}
+                students_data = students_raw.get('data', [])
+                print(f"   📋 Phát hiện format workflow: {len(students_data)} học sinh")
+            elif isinstance(students_raw, list):
+                # Format filtered: [...] trực tiếp
+                students_data = students_raw
+                print(f"   📋 Phát hiện format filtered: {len(students_data)} học sinh")
+            else:
+                print(f"   ❌ Format dữ liệu students không được hỗ trợ: {type(students_raw)}")
+                return False
+            
+            if not students_data:
+                print("   ⚠️ Không có dữ liệu học sinh")
+                return False
             
             students_list = []
             
             for idx, student_record in enumerate(students_data, 1):
-                user_info = student_record.get('userInfo', {})
-                
-                student_info = {
-                    'STT': idx,
-                    'Họ và tên': user_info.get('displayName', ''),
-                    'Ngày sinh': user_info.get('userBirthday', ''),
-                    'Lớp chính': student_record.get('grade', ''),
-                    'Tài khoản': user_info.get('userName', ''),
-                    'Mật khẩu lần đầu': user_info.get('pwd', ''),
-                    'Mã đăng nhập cho PH': user_info.get('codePin', '')
-                }
-                students_list.append(student_info)
+                # Xử lý cấu trúc student record linh hoạt
+                if isinstance(student_record, dict):
+                    # Tìm userInfo trong các vị trí có thể
+                    user_info = (
+                        student_record.get('userInfo', {}) or 
+                        student_record.get('studentInfo', {}) or 
+                        student_record
+                    )
+                    
+                    student_info = {
+                        'STT': idx,
+                        'Họ và tên': user_info.get('displayName', ''),
+                        'Ngày sinh': user_info.get('userBirthday', ''),
+                        'Lớp chính': student_record.get('grade', ''),
+                        'Tài khoản': user_info.get('userName', ''),
+                        'Mật khẩu lần đầu': user_info.get('pwd', ''),
+                        'Mã đăng nhập cho PH': user_info.get('codePin', '')
+                    }
+                    students_list.append(student_info)
             
             self.students_df = pd.DataFrame(students_list)
             print(f"✅ Đã trích xuất {len(students_list)} học sinh")
@@ -189,55 +242,124 @@ class JSONToExcelTemplateConverter:
             return False
     
     def update_admin_sheet(self, workbook):
-        """Cập nhật sheet ADMIN với thông tin trường và styling chuẩn Mode 1"""
+        """Cập nhật sheet ADMIN với thông tin trường, admin và HT/HP - HOÀN TOÀN KHÔNG THAY ĐỔI cấu trúc template"""
         try:
             admin_sheet = workbook['ADMIN']
             
-            # Cập nhật tên trường (A1) với styling
-            admin_sheet['A1'] = f"Tên trường: {self.school_name}"
-            admin_sheet['A1'].font = Font(bold=True, size=14, name='Calibri')
-            admin_sheet['A1'].alignment = self.left_alignment
+            # Xử lý merged cells để tránh lỗi read-only
+            if admin_sheet.merged_cells:
+                merged_ranges = list(admin_sheet.merged_cells.ranges)
+                for merged_range in merged_ranges:
+                    try:
+                        admin_sheet.unmerge_cells(str(merged_range))
+                    except:
+                        pass  # Bỏ qua nếu không thể unmerge
             
-            # Format header row (row 2)
-            headers = ['STT', 'Tên đăng nhập', 'Mật khẩu đăng nhập lần đầu']
-            header_cols = ['A', 'C', 'D']
+            print(f"🔍 DEBUG: Analyzing template structure...")
+            print(f"   A1 value: '{admin_sheet['A1'].value}'")
+            print(f"   A2 value: '{admin_sheet['A2'].value}'") 
+            print(f"   A3 value: '{admin_sheet['A3'].value}'")
+            print(f"   A4 value: '{admin_sheet['A4'].value}'")
+            print(f"   C1 value: '{admin_sheet['C1'].value}'")
+            print(f"   D1 value: '{admin_sheet['D1'].value}'")
             
-            for i, header in enumerate(headers):
-                cell = admin_sheet[f'{header_cols[i]}2']
-                cell.value = header
-                cell.font = self.header_font
-                cell.border = self.thin_border
-                cell.alignment = self.center_alignment
-                cell.fill = self.header_fill
+            # Điền dữ liệu vào các dòng có sẵn trong template (KHÔNG THAY ĐỔI cấu trúc)
+            accounts_updated = 0
             
-            # Cập nhật thông tin admin (row 3)
-            admin_sheet['A3'] = 1  # STT
-            admin_sheet['C3'] = self.admin_email  # Tài khoản admin
-            admin_sheet['D3'] = self.admin_password  # Mật khẩu
+            # Row 2 (A2): Admin - điền vào cột C2 và D2
+            try:
+                if (admin_sheet['A2'].value and 
+                    str(admin_sheet['A2'].value).strip().upper() == 'ADMIN'):
+                    admin_sheet['C2'] = self.admin_email  # Cột C: Tài khoản
+                    admin_sheet['D2'] = self.admin_password  # Cột D: Mật khẩu
+                    accounts_updated += 1
+                    print(f"   ✅ Đã điền dữ liệu Admin vào row 2 (A2='Admin')")
+                    print(f"      C2: {self.admin_email}")
+                    print(f"      D2: {self.admin_password}")
+                else:
+                    print(f"   ⚠️ Row 2 không có 'Admin': A2='{admin_sheet['A2'].value}'")
+            except Exception as e:
+                print(f"   ⚠️ Không thể điền dữ liệu Admin: {e}")
             
-            # Format data row với border và alignment chuẩn
-            for col in ['A', 'C', 'D']:
-                cell = admin_sheet[f'{col}3']
-                cell.font = self.data_font
-                cell.border = self.thin_border
+            # Xử lý HT/HP từ JSON data
+            ht_hp_info = self.json_data.get('ht_hp_info', {})
+            ht_list = ht_hp_info.get('ht', [])
+            hp_list = ht_hp_info.get('hp', [])
             
-            # Áp dụng alignment theo chuẩn: STT và Mật khẩu center align; Tên đăng nhập left align
-            max_data_row = 3
-            max_data_col = 4  # A, B, C, D (chỉ sử dụng A, C, D)
-            center_columns = [1, 4]  # A=1 (STT), D=4 (Mật khẩu) center align
-            self.apply_border_to_sheet(admin_sheet, max_data_row, max_data_col, center_columns)
+            print(f"   🔍 HT/HP data: {len(ht_list)} HT, {len(hp_list)} HP")
             
-            # Set column widths theo chuẩn Mode 1
-            admin_sheet.column_dimensions['A'].width = 8   # STT
-            admin_sheet.column_dimensions['C'].width = 40  # Tên đăng nhập
-            admin_sheet.column_dimensions['D'].width = 25  # Mật khẩu
+            # Row 3 (A3): Hiệu Trưởng - điền vào cột C3 và D3
+            try:
+                a3_value = str(admin_sheet['A3'].value).strip() if admin_sheet['A3'].value else ""
+                if a3_value.upper() in ['HIỆU TRƯỞNG', 'HIEU TRUONG']:
+                    if ht_list:
+                        ht = ht_list[0]  # CHỈ lấy HT đầu tiên
+                        admin_sheet['C3'] = ht.get('userName', '')
+                        admin_sheet['D3'] = ht.get('pwd', '')
+                        accounts_updated += 1
+                        print(f"   ✅ Đã điền dữ liệu Hiệu Trưởng vào row 3 (A3='{a3_value}')")
+                        print(f"      C3: {ht.get('userName', '')}")
+                        print(f"      D3: {ht.get('pwd', '')}")
+                        
+                        if len(ht_list) > 1:
+                            print(f"   ⚠️ Có {len(ht_list)} Hiệu trường, template chỉ hỗ trợ 1")
+                    else:
+                        print(f"   📋 Row 3 có '{a3_value}' nhưng không có dữ liệu HT")
+                else:
+                    print(f"   ⚠️ Row 3 không có 'Hiệu Trưởng': A3='{a3_value}'")
+            except Exception as e:
+                print(f"   ⚠️ Không thể điền dữ liệu Hiệu Trưởng: {e}")
             
-            # Set row heights
-            admin_sheet.row_dimensions[1].height = 25  # Title row
-            admin_sheet.row_dimensions[2].height = 20  # Header row
-            admin_sheet.row_dimensions[3].height = 20  # Data row
+            # Row 4 (A4): Hiệu Phó - điền vào cột C4 và D4
+            try:
+                a4_value = str(admin_sheet['A4'].value).strip() if admin_sheet['A4'].value else ""
+                if a4_value.upper() in ['HIỆU PHÓ', 'HIEU PHO']:
+                    if hp_list:
+                        hp = hp_list[0]  # CHỈ lấy HP đầu tiên
+                        admin_sheet['C4'] = hp.get('userName', '')
+                        admin_sheet['D4'] = hp.get('pwd', '')
+                        accounts_updated += 1
+                        print(f"   ✅ Đã điền dữ liệu Hiệu Phó vào row 4 (A4='{a4_value}')")
+                        print(f"      C4: {hp.get('userName', '')}")
+                        print(f"      D4: {hp.get('pwd', '')}")
+                        
+                        if len(hp_list) > 1:
+                            print(f"   ⚠️ Có {len(hp_list)} Hiệu phó, template chỉ hỗ trợ 1")
+                    else:
+                        print(f"   📋 Row 4 có '{a4_value}' nhưng không có dữ liệu HP")
+                else:
+                    print(f"   ⚠️ Row 4 không có 'Hiệu Phó': A4='{a4_value}'")
+            except Exception as e:
+                print(f"   ⚠️ Không thể điền dữ liệu Hiệu Phó: {e}")
             
-            print("✅ Đã cập nhật sheet ADMIN")
+            # HOÀN TOÀN KHÔNG THÊM DÒNG MỚI - Template structure được giữ nguyên
+            
+            # Format các ô đã điền dữ liệu (CHỈ format data cells)
+            for row in range(2, 5):  # Row 2, 3, 4 (data rows)
+                for col in ['C', 'D']:  # Chỉ format cột C và D
+                    try:
+                        cell = admin_sheet[f'{col}{row}']
+                        if hasattr(cell, 'font') and cell.value:
+                            cell.font = self.data_font
+                            if col == 'D':  # Center align cho mật khẩu
+                                cell.alignment = self.center_alignment
+                            else:
+                                cell.alignment = self.left_alignment
+                    except:
+                        pass  # Bỏ qua nếu không thể format
+
+            # Điều chỉnh column widths một cách an toàn
+            try:
+                admin_sheet.column_dimensions['A'].width = 15  # Vai trò  
+                admin_sheet.column_dimensions['C'].width = 35  # Tên đăng nhập
+                admin_sheet.column_dimensions['D'].width = 25  # Mật khẩu
+            except:
+                pass  # Bỏ qua nếu không thể điều chỉnh width
+            
+            print(f"✅ Đã cập nhật sheet ADMIN với {accounts_updated} tài khoản")
+            print(f"   📋 Format: Row 2=Admin, Row 3=HT, Row 4=HP")
+            print(f"   🏗️ Cột C=Tài khoản, Cột D=Mật khẩu lần đầu")
+            print(f"   ✅ HOÀN TOÀN GIỮ NGUYÊN template structure")
             return True
             
         except Exception as e:

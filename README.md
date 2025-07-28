@@ -88,7 +88,7 @@ SchoolProcess/
    ```
 
 4. **Cấu hình môi trường:**
-   - Copy `.env.example` thành `.env`
+   - Thêm file `.env`
    - Cập nhật các thông tin cấu hình cần thiết
    - Đặt file `service_account.json` vào thư mục `config/`
 
@@ -115,87 +115,6 @@ python app.py
 6. **Tổng hợp báo cáo** - Hiển thị kết quả và thống kê
 
 > **Lưu ý**: Ứng dụng đã được tối ưu để chỉ tập trung vào 2 chức năng chính, loại bỏ các tính năng phức tạp không cần thiết.
-
-## 📋 File cấu hình
-
-### .env example:
-
-```env
-# Google API
-GOOGLE_SERVICE_ACCOUNT_FILE=config/service_account.json
-GOOGLE_TEST_SHEET_ID=your_sheet_id
-
-# OnLuyen API
-ONLUYEN_AUTH_URL=https://auth.onluyen.vn
-ONLUYEN_SCHOOL_API_URL=https://school-api.onluyen.vn
-ONLUYEN_USERNAME=your_username
-ONLUYEN_PASSWORD=your_password
-
-# Paths
-INPUT_DIR=data/input
-OUTPUT_DIR=data/output
-TEMP_DIR=data/temp
-CONFIG_DIR=config
-
-# Settings
-DEBUG=True
-DEMO_MODE=True
-ENVIRONMENT=development
-```
-
-## 🛠️ Development
-
-### Thêm processor mới:
-
-1. Tạo class kế thừa từ `BaseDataProcessor`
-2. Implement các abstract methods
-3. Thêm vào menu trong `app.py`
-
-### Thêm converter mới:
-
-1. Tạo class trong thư mục `converters/`
-2. Implement logic chuyển đổi
-3. Update `__init__.py` trong converters
-
-### Code Structure:
-
-- **app.py**: ~950 lines (đã giảm 35% từ version trước)
-- **Modules**: Được tổ chức theo chức năng rõ ràng
-- **Dependencies**: Chỉ sử dụng thư viện cần thiết
-
-## 📝 Dependencies chính
-
-- `pandas` - Xử lý dữ liệu
-- `openpyxl` - Thao tác Excel files
-- `gspread` - Google Sheets API
-- `requests` - HTTP client
-- `python-dotenv` - Quản lý environment variables
-- `brotli` - Compression support
-
-## 🔄 Version History
-
-- **v3.0** - Simplified version: Chỉ giữ 2 chức năng chính, clean code
-- **v2.0** - Cấu trúc modular, clean architecture
-- **v1.5** - Tích hợp OnLuyen API với compression support
-- **v1.0** - Version đầu tiên với Google Sheets và Excel processing
-
-## 🎯 Tối ưu hóa
-
-Ứng dụng đã được tối ưu hóa để:
-
-- ✅ Tập trung vào 2 chức năng chính
-- ✅ Giảm thiểu phức tạp trong code
-- ✅ Loại bỏ các tính năng ít sử dụng
-- ✅ Cải thiện hiệu suất và tốc độ khởi động
-- ✅ Simplify user experience
-
-## 🤝 Contributing
-
-1. Fork repository
-2. Tạo feature branch
-3. Commit changes
-4. Push to branch
-5. Create Pull Request
 
 ## 📄 License
 

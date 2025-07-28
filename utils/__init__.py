@@ -5,6 +5,7 @@ Các tiện ích chung cho ứng dụng School Process
 
 from .menu_utils import *
 from .file_utils import *
+from .excel_analyzer import analyze_excel_structure, find_import_files
 
 __all__ = [
     'print_header', 'print_menu', 'get_user_choice', 'get_user_input',
@@ -13,5 +14,5 @@ __all__ = [
     'get_file_timestamp', 'get_file_size', 'format_file_size',
     'list_files_with_pattern', 'get_latest_file', 'backup_file',
     'clean_old_files', 'create_timestamped_filename', 'validate_file_access',
-    'get_directory_info'
+    'get_directory_info', 'analyze_excel_structure', 'find_import_files'
 ]
