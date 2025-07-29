@@ -114,7 +114,8 @@ class JSONToExcelTemplateConverter:
             
             teachers_list = []
             
-            for idx, teacher_record in enumerate(teachers_data, 1):
+            stt = 1  # Đếm STT riêng để không bị lỗ khi loại bỏ GVCN
+            for teacher_record in teachers_data:
                 # Xử lý cấu trúc teacher record linh hoạt
                 if isinstance(teacher_record, dict):
                     # Tìm teacherInfo trong các vị trí có thể
@@ -124,14 +125,22 @@ class JSONToExcelTemplateConverter:
                         teacher_record
                     )
                     
+                    teacher_name = teacher_info_data.get('displayName', '').strip()
+                    
+                    # Bỏ qua giáo viên có tên là "GVCN"
+                    if teacher_name.upper() == "GVCN":
+                        print(f"   🚫 Loại bỏ giáo viên: {teacher_name} (GVCN)")
+                        continue
+                    
                     teacher_info = {
-                        'STT': idx,
-                        'Tên giáo viên': teacher_info_data.get('displayName', ''),
+                        'STT': stt,
+                        'Tên giáo viên': teacher_name,
                         'Ngày sinh': teacher_info_data.get('userBirthday', ''),
                         'Tên đăng nhập': teacher_info_data.get('userName', ''),
                         'Mật khẩu đăng nhập lần đầu': teacher_info_data.get('pwd', '')
                     }
                     teachers_list.append(teacher_info)
+                    stt += 1
             
             self.teachers_df = pd.DataFrame(teachers_list)
             print(f"✅ Đã trích xuất {len(teachers_list)} giáo viên")
@@ -242,124 +251,262 @@ class JSONToExcelTemplateConverter:
             return False
     
     def update_admin_sheet(self, workbook):
-        """Cập nhật sheet ADMIN với thông tin trường, admin và HT/HP - HOÀN TOÀN KHÔNG THAY ĐỔI cấu trúc template"""
+        """Cập nhật sheet ADMIN với thông tin trường, admin và HT/HP - PRESERVE MERGED CELLS"""
         try:
             admin_sheet = workbook['ADMIN']
             
-            # Xử lý merged cells để tránh lỗi read-only
+            print(f"🔍 DEBUG: Template structure analysis...")
+            # Phân tích merged cells hiện có
+            merged_ranges = []
             if admin_sheet.merged_cells:
                 merged_ranges = list(admin_sheet.merged_cells.ranges)
-                for merged_range in merged_ranges:
-                    try:
-                        admin_sheet.unmerge_cells(str(merged_range))
-                    except:
-                        pass  # Bỏ qua nếu không thể unmerge
+                print(f"   📋 Merged cells found: {[str(r) for r in merged_ranges]}")
             
-            print(f"🔍 DEBUG: Analyzing template structure...")
-            print(f"   A1 value: '{admin_sheet['A1'].value}'")
-            print(f"   A2 value: '{admin_sheet['A2'].value}'") 
-            print(f"   A3 value: '{admin_sheet['A3'].value}'")
-            print(f"   A4 value: '{admin_sheet['A4'].value}'")
-            print(f"   C1 value: '{admin_sheet['C1'].value}'")
-            print(f"   D1 value: '{admin_sheet['D1'].value}'")
+            # GIỮ NGUYÊN merged cells - KHÔNG unmerge
+            # Chỉ cập nhật nội dung các ô merged chính
             
-            # Điền dữ liệu vào các dòng có sẵn trong template (KHÔNG THAY ĐỔI cấu trúc)
-            accounts_updated = 0
+            # 1. Cập nhật A1 (merged A1:D1) - Tên trường
+            admin_sheet['A1'] = f"Tên trường: {self.school_name}"
+            admin_sheet['A1'].font = Font(bold=True, size=14, name='Calibri')
+            admin_sheet['A1'].alignment = self.center_alignment
+            print(f"   ✅ A1 (merged A1:D1): Tên trường")
             
-            # Row 2 (A2): Admin - điền vào cột C2 và D2
+            # 2. Headers đã có sẵn trong template: C2="Tài khoản", D2="Mật khẩu lần đầu"
+            # Chỉ format lại headers nếu cần
             try:
-                if (admin_sheet['A2'].value and 
-                    str(admin_sheet['A2'].value).strip().upper() == 'ADMIN'):
-                    admin_sheet['C2'] = self.admin_email  # Cột C: Tài khoản
-                    admin_sheet['D2'] = self.admin_password  # Cột D: Mật khẩu
-                    accounts_updated += 1
-                    print(f"   ✅ Đã điền dữ liệu Admin vào row 2 (A2='Admin')")
-                    print(f"      C2: {self.admin_email}")
-                    print(f"      D2: {self.admin_password}")
-                else:
-                    print(f"   ⚠️ Row 2 không có 'Admin': A2='{admin_sheet['A2'].value}'")
-            except Exception as e:
-                print(f"   ⚠️ Không thể điền dữ liệu Admin: {e}")
+                if admin_sheet['C2'].value:
+                    admin_sheet['C2'].font = self.header_font
+                    admin_sheet['C2'].alignment = self.center_alignment
+                if admin_sheet['D2'].value:
+                    admin_sheet['D2'].font = self.header_font
+                    admin_sheet['D2'].alignment = self.center_alignment
+                print(f"   ✅ Headers C2, D2: Đã format")
+            except:
+                pass
             
-            # Xử lý HT/HP từ JSON data
+            # 3. Admin data (Row 3: A3:B3 merged = "Admin")
+            # CHỈ điền data vào C3, D3 - KHÔNG touch B3 vì đó là merged cell secondary
+            admin_sheet['C3'] = self.admin_email
+            admin_sheet['D3'] = self.admin_password
+            
+            # Format admin row (chỉ C3, D3)
+            for col in ['C', 'D']:
+                cell = admin_sheet[f'{col}3']
+                cell.font = self.data_font
+                if col == 'C':  # Tài khoản left align
+                    cell.alignment = self.left_alignment
+                else:  # Mật khẩu center align
+                    cell.alignment = self.center_alignment
+            
+            print(f"   ✅ Row 3 (Admin): A3:B3=merged, C3={self.admin_email}, D3=***")
+            
+            # 4. HT/HP data từ JSON
             ht_hp_info = self.json_data.get('ht_hp_info', {})
             ht_list = ht_hp_info.get('ht', [])
             hp_list = ht_hp_info.get('hp', [])
             
-            print(f"   🔍 HT/HP data: {len(ht_list)} HT, {len(hp_list)} HP")
+            accounts_filled = 1  # Admin đã điền
             
-            # Row 3 (A3): Hiệu Trưởng - điền vào cột C3 và D3
-            try:
-                a3_value = str(admin_sheet['A3'].value).strip() if admin_sheet['A3'].value else ""
-                if a3_value.upper() in ['HIỆU TRƯỞNG', 'HIEU TRUONG']:
-                    if ht_list:
-                        ht = ht_list[0]  # CHỈ lấy HT đầu tiên
-                        admin_sheet['C3'] = ht.get('userName', '')
-                        admin_sheet['D3'] = ht.get('pwd', '')
-                        accounts_updated += 1
-                        print(f"   ✅ Đã điền dữ liệu Hiệu Trưởng vào row 3 (A3='{a3_value}')")
-                        print(f"      C3: {ht.get('userName', '')}")
-                        print(f"      D3: {ht.get('pwd', '')}")
-                        
-                        if len(ht_list) > 1:
-                            print(f"   ⚠️ Có {len(ht_list)} Hiệu trường, template chỉ hỗ trợ 1")
+            # 5. Hiệu Trưởng (Row 4)
+            if ht_list:
+                ht = ht_list[0]  # Chỉ lấy HT đầu tiên để fit template
+                # Kiểm tra nếu B4 không nằm trong merged cell thì mới điền tên
+                try:
+                    admin_sheet['B4'] = ht.get('displayName', '')  # Tên HT vào cột B4
+                    print(f"   ✅ B4: Điền tên HT = {ht.get('displayName', '')}")
+                except:
+                    print(f"   ⚠️ B4: Bị merged, skip điền tên HT")
+                
+                admin_sheet['C4'] = ht.get('userName', '')
+                admin_sheet['D4'] = ht.get('pwd', '')
+                
+                # Format HT row (chỉ format các ô không merged)
+                for col in ['C', 'D']:  # Chắc chắn C4, D4 không merged
+                    cell = admin_sheet[f'{col}4']
+                    cell.font = self.data_font
+                    if col == 'C':  # Username left align
+                        cell.alignment = self.left_alignment
+                    else:  # Mật khẩu center align
+                        cell.alignment = self.center_alignment
+                
+                # Format B4 nếu điền được
+                try:
+                    admin_sheet['B4'].font = self.data_font
+                    admin_sheet['B4'].alignment = self.center_alignment
+                except:
+                    pass
+                
+                accounts_filled += 1
+                print(f"   ✅ Row 4 (Hiệu Trưởng): C4={ht.get('userName', '')}, D4=***")
+                
+                if len(ht_list) > 1:
+                    print(f"   ⚠️ Template chỉ hỗ trợ 1 HT, có {len(ht_list)} HT")
+            else:
+                print(f"   📋 Row 4 (Hiệu Trưởng): Không có dữ liệu")
+            
+            # 6. Hiệu Phó (Row 5 và các row tiếp theo nếu có nhiều HP)
+            if hp_list:
+                # BACKUP row 7 content trước khi thực hiện insert (để preserve "Lưu ý")
+                row7_backup = {
+                    'A7': admin_sheet['A7'].value,
+                    'merged_cell_range': None
+                }
+                
+                # Tìm merged cell chứa row 7
+                for merged_range in admin_sheet.merged_cells.ranges:
+                    if 'A7' in str(merged_range) or any(f'{chr(65+i)}7' in str(merged_range) for i in range(4)):
+                        row7_backup['merged_cell_range'] = str(merged_range)
+                        break
+                
+                print(f"   🔒 Backup row 7: A7='{row7_backup['A7']}', merged='{row7_backup['merged_cell_range']}'")
+                
+                # Xử lý HP đầu tiên vào row 5 (có sẵn trong template)
+                first_hp = hp_list[0]
+                admin_sheet['B5'] = first_hp.get('displayName', '')
+                admin_sheet['C5'] = first_hp.get('userName', '')
+                admin_sheet['D5'] = first_hp.get('pwd', '')
+                
+                # Format HP đầu tiên
+                for col in ['C', 'D']:
+                    cell = admin_sheet[f'{col}5']
+                    cell.font = self.data_font
+                    if col == 'C':
+                        cell.alignment = self.left_alignment
                     else:
-                        print(f"   📋 Row 3 có '{a3_value}' nhưng không có dữ liệu HT")
-                else:
-                    print(f"   ⚠️ Row 3 không có 'Hiệu Trưởng': A3='{a3_value}'")
-            except Exception as e:
-                print(f"   ⚠️ Không thể điền dữ liệu Hiệu Trưởng: {e}")
-            
-            # Row 4 (A4): Hiệu Phó - điền vào cột C4 và D4
-            try:
-                a4_value = str(admin_sheet['A4'].value).strip() if admin_sheet['A4'].value else ""
-                if a4_value.upper() in ['HIỆU PHÓ', 'HIEU PHO']:
-                    if hp_list:
-                        hp = hp_list[0]  # CHỈ lấy HP đầu tiên
-                        admin_sheet['C4'] = hp.get('userName', '')
-                        admin_sheet['D4'] = hp.get('pwd', '')
-                        accounts_updated += 1
-                        print(f"   ✅ Đã điền dữ liệu Hiệu Phó vào row 4 (A4='{a4_value}')")
-                        print(f"      C4: {hp.get('userName', '')}")
-                        print(f"      D4: {hp.get('pwd', '')}")
-                        
-                        if len(hp_list) > 1:
-                            print(f"   ⚠️ Có {len(hp_list)} Hiệu phó, template chỉ hỗ trợ 1")
-                    else:
-                        print(f"   📋 Row 4 có '{a4_value}' nhưng không có dữ liệu HP")
-                else:
-                    print(f"   ⚠️ Row 4 không có 'Hiệu Phó': A4='{a4_value}'")
-            except Exception as e:
-                print(f"   ⚠️ Không thể điền dữ liệu Hiệu Phó: {e}")
-            
-            # HOÀN TOÀN KHÔNG THÊM DÒNG MỚI - Template structure được giữ nguyên
-            
-            # Format các ô đã điền dữ liệu (CHỈ format data cells)
-            for row in range(2, 5):  # Row 2, 3, 4 (data rows)
-                for col in ['C', 'D']:  # Chỉ format cột C và D
+                        cell.alignment = self.center_alignment
+                
+                try:
+                    admin_sheet['B5'].font = self.data_font
+                    admin_sheet['B5'].alignment = self.center_alignment
+                except:
+                    pass
+                
+                accounts_filled += 1
+                print(f"   ✅ Row 5 (Hiệu Phó 1): B5={first_hp.get('displayName', '')}, C5={first_hp.get('userName', '')}, D5=***")
+                
+                # Xử lý các HP còn lại - INSERT từ row 6 trở đi
+                for idx in range(1, len(hp_list)):
+                    hp = hp_list[idx]
+                    insert_position = 5 + idx  # Row 6, 7, 8...
+                    
+                    # Insert row mới
+                    admin_sheet.insert_rows(insert_position)
+                    print(f"   ➕ Insert row {insert_position} cho HP thứ {idx + 1}")
+                    
+                    # Điền data cho row mới
+                    admin_sheet[f'A{insert_position}'] = "Hiệu Phó"
+                    admin_sheet[f'B{insert_position}'] = hp.get('displayName', '')
+                    admin_sheet[f'C{insert_position}'] = hp.get('userName', '')
+                    admin_sheet[f'D{insert_position}'] = hp.get('pwd', '')
+                    
+                    # Format row mới
+                    admin_sheet[f'A{insert_position}'].font = self.data_font
+                    admin_sheet[f'A{insert_position}'].alignment = self.center_alignment  # Căn giữa cho "Hiệu Phó"
+                    admin_sheet[f'A{insert_position}'].border = self.thin_border  # Thêm border
+                    
+                    for col in ['B', 'C', 'D']:
+                        cell = admin_sheet[f'{col}{insert_position}']
+                        cell.font = self.data_font
+                        cell.border = self.thin_border  # Thêm border cho tất cả ô
+                        if col == 'B':
+                            cell.alignment = self.center_alignment  # Tên căn giữa
+                        elif col == 'C':
+                            cell.alignment = self.left_alignment    # Username căn trái
+                        else:  # col == 'D'
+                            cell.alignment = self.center_alignment  # Password căn giữa
+                    
+                    # Set row height đồng bộ với các row khác (20)
+                    admin_sheet.row_dimensions[insert_position].height = 20
+                    print(f"   📏 Set row {insert_position} height = 20")
+                    
+                    accounts_filled += 1
+                    print(f"   ✅ Row {insert_position} (Hiệu Phó {idx + 1}): B{insert_position}={hp.get('displayName', '')}, C{insert_position}={hp.get('userName', '')}, D{insert_position}=***")
+                
+                # QUAN TRỌNG: Reset row height của dòng 7 cũ (bây giờ trống) về bình thường
+                try:
+                    admin_sheet.row_dimensions[7].height = 20
+                    print(f"   📏 Reset row 7 height = 20 (dòng cũ đã trống)")
+                except:
+                    pass
+                
+                # RESTORE row 7 content nếu bị mất
+                current_row7_value = admin_sheet['A7'].value
+                if not current_row7_value and row7_backup['A7']:
+                    print(f"   🔧 Row 7 bị mất content, đang restore...")
+                    # Tìm vị trí mới của row 7 (có thể đã shift)
+                    target_row = 7 + len(hp_list) - 1  # Row 7 gốc + số HP insert
+                    
+                    # Restore content vào target row
+                    admin_sheet[f'A{target_row}'] = row7_backup['A7']
+                    
+                    # QUAN TRỌNG: Merge cells A{target_row}:D{target_row} để giống template
                     try:
-                        cell = admin_sheet[f'{col}{row}']
-                        if hasattr(cell, 'font') and cell.value:
-                            cell.font = self.data_font
-                            if col == 'D':  # Center align cho mật khẩu
-                                cell.alignment = self.center_alignment
-                            else:
-                                cell.alignment = self.left_alignment
-                    except:
-                        pass  # Bỏ qua nếu không thể format
-
-            # Điều chỉnh column widths một cách an toàn
+                        # Kiểm tra nếu range chưa được merge
+                        target_range = f'A{target_row}:D{target_row}'
+                        
+                        # Unmerge range cũ nếu tồn tại (có thể bị lệch)
+                        ranges_to_remove = []
+                        for merged_range in admin_sheet.merged_cells.ranges:
+                            range_str = str(merged_range)
+                            # Nếu có merged range từ A7 trở đi, remove để tạo mới
+                            if range_str.startswith('A7:') or range_str.startswith('A8:') or range_str.startswith('A9:'):
+                                ranges_to_remove.append(merged_range)
+                        
+                        for range_to_remove in ranges_to_remove:
+                            admin_sheet.unmerge_cells(str(range_to_remove))
+                            print(f"   🔧 Unmerged old range: {range_to_remove}")
+                        
+                        # Merge cells mới cho "Lưu ý"
+                        admin_sheet.merge_cells(target_range)
+                        print(f"   ✅ Merged cells: {target_range}")
+                        
+                        # Format merged cell với wrap text và row height hợp lý
+                        target_cell = admin_sheet[f'A{target_row}']
+                        target_cell.font = self.data_font
+                        target_cell.alignment = Alignment(
+                            horizontal='left', 
+                            vertical='center',  # Middle align (center) thay vì top
+                            wrap_text=True  # Wrap text để xuống dòng
+                        )
+                        
+                        admin_sheet.row_dimensions[target_row].height = 60
+                        
+                    except Exception as merge_error:
+                        print(f"   ⚠️ Lỗi merge cells: {merge_error}")
+                    
+                    print(f"   ✅ Restored row {target_row} with merged cells: '{row7_backup['A7'][:50]}...'")
+                else:
+                    print(f"   ✅ Row 7 content vẫn còn nguyên: '{current_row7_value[:50] if current_row7_value else 'Empty'}...'")
+                
+                if len(hp_list) > 1:
+                    print(f"   ✅ Đã insert {len(hp_list) - 1} dòng mới cho tổng {len(hp_list)} Hiệu phó")
+            else:
+                print(f"   📋 Row 5 (Hiệu Phó): Không có dữ liệu")
+            
+            # 7. Điều chỉnh column widths một cách an toàn
             try:
-                admin_sheet.column_dimensions['A'].width = 15  # Vai trò  
-                admin_sheet.column_dimensions['C'].width = 35  # Tên đăng nhập
+                admin_sheet.column_dimensions['A'].width = 15  # Vai trò (merged)
+                admin_sheet.column_dimensions['B'].width = 25  # Tên người
+                admin_sheet.column_dimensions['C'].width = 35  # Tài khoản
                 admin_sheet.column_dimensions['D'].width = 25  # Mật khẩu
             except:
-                pass  # Bỏ qua nếu không thể điều chỉnh width
+                pass
             
-            print(f"✅ Đã cập nhật sheet ADMIN với {accounts_updated} tài khoản")
-            print(f"   📋 Format: Row 2=Admin, Row 3=HT, Row 4=HP")
-            print(f"   🏗️ Cột C=Tài khoản, Cột D=Mật khẩu lần đầu")
-            print(f"   ✅ HOÀN TOÀN GIỮ NGUYÊN template structure")
+            # 8. Row heights - cập nhật cho tất cả rows có thể có (bao gồm các HP được thêm)
+            try:
+                admin_sheet.row_dimensions[1].height = 25  # Title
+                # Set height cho admin, HT, HP rows (2-6 và các row được insert)
+                total_account_rows = 2 + len(ht_list) + len(hp_list)  # Admin + HT + HP
+                for row in range(2, total_account_rows + 2):  # +2 để bao gồm đủ rows
+                    if row <= 10:  # Giới hạn an toàn
+                        admin_sheet.row_dimensions[row].height = 20
+                print(f"   📏 Set row heights (2-{min(total_account_rows + 1, 10)}) = 20")
+            except:
+                pass
+            
+            print(f"✅ Đã cập nhật sheet ADMIN với {accounts_filled} tài khoản")
+            print(f"   📋 1 Admin + {len(ht_list)} HT + {len(hp_list)} HP")
+            print(f"   🏗️ PRESERVE merged cells: {len(merged_ranges)} ranges")
             return True
             
         except Exception as e:
@@ -566,7 +713,7 @@ if __name__ == "__main__":
     
     # Đường dẫn file JSON (sử dụng file mới nhất)
     json_files = [
-        "data/output/workflow_data_GDNN - GDTX TP Chí Linh_20250726_160141.json"
+        "data/output/workflow_filtered_GDNN - GDTX TP Chí Linh_20250729_085609.json"
     ]
     
     for json_file in json_files:

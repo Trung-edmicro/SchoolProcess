@@ -1,10 +1,3 @@
-"""
-Google Sheets Data Extractor
-Module chuyên biệt để trích xuất dữ liệu cần thiết từ Google Sheets
-Author: Assistant
-Date: 2025-07-26
-"""
-
 import sys
 import pandas as pd
 from pathlib import Path
@@ -40,7 +33,7 @@ class GoogleSheetsExtractor:
             print(f"❌ Lỗi khởi tạo processor: {e}")
             self.processor = None
     
-    def extract_required_columns(self, sheet_id: str = None, sheet_name: str = None, 
+    def extract_required_columns(self, sheet_id: str = None, sheet_name: str = 'ED-2025', 
                                 required_columns: List[str] = None) -> Optional[Dict[str, Any]]:
         """
         Trích xuất các cột cần thiết từ Google Sheets
@@ -69,7 +62,7 @@ class GoogleSheetsExtractor:
         print(f"🔍 TRÍCH XUẤT DỮ LIỆU TỪ GOOGLE SHEETS")
         print("=" * 60)
         print(f"📋 Sheet ID: {sheet_id}")
-        print(f"📄 Sheet Name: {sheet_name or 'Mặc định'}")
+        print(f"📄 Sheet Name: {sheet_name or 'ED-2025'}")
         print(f"📊 Cột cần trích xuất: {', '.join(required_columns)}")
         print()
         

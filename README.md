@@ -1,17 +1,44 @@
 # School Process Application
 
-Ứng dụng xử lý dữ liệu trường học tối ưu - Chỉ tập trung vào 2 chức năng chính.
+Ứng dụng xử lý dữ liệu trường học với giao diện hiện đại - Hỗ trợ cả Console và UI.
+
+## 🚀 Khởi động nhanh
+
+### 🖥️ Giao diện người dùng (Khuyến nghị)
+```bash
+# Cách 1: Sử dụng launcher với splash screen
+python main_ui.py
+
+# Cách 2: Sử dụng file batch (Windows)
+start_ui.bat
+
+# Cách 3: Double-click vào start_ui.bat
+```
+
+### 💻 Console/Terminal (Truyền thống)
+```bash
+python app.py
+```
 
 ## 🏗️ Cấu trúc dự án
 
 ```
 SchoolProcess/
-├── app.py                    # Ứng dụng chính (đã được tối ưu)
-├── requirements.txt          # Dependencies
-├── .env                     # Cấu hình môi trường
-├── README.md               # Tài liệu này
+├── main_ui.py              # 🎨 UI Launcher (KHUYẾN NGHỊ)
+├── start_ui.bat            # 🚀 Windows Launcher  
+├── app_ui.py               # UI Application Entry
+├── app.py                  # Console Application
+├── requirements.txt        # Dependencies
+├── .env                   # Cấu hình môi trường
+├── README.md              # Tài liệu chính
+├── UI_README.md           # 📖 Hướng dẫn UI chi tiết
 │
-├── config/                 # Cấu hình
+├── ui/                    # 🎨 Giao diện người dùng
+│   ├── __init__.py
+│   ├── main_window.py     # Main UI Window
+│   └── components.py      # UI Components
+│
+├── config/                # Cấu hình
 │   ├── __init__.py
 │   ├── config.py          # Cấu hình cơ bản
 │   ├── config_manager.py  # Quản lý cấu hình
@@ -91,6 +118,64 @@ SchoolProcess/
    - Thêm file `.env`
    - Cập nhật các thông tin cấu hình cần thiết
    - Đặt file `service_account.json` vào thư mục `config/`
+
+## 🎨 Giao diện người dùng (UI)
+
+### ✨ Tính năng UI
+
+- **Giao diện hiện đại**: Material Design với Tkinter
+- **Realtime logging**: Theo dõi tiến trình với màu sắc
+- **Progress tracking**: Progress bar chi tiết từng bước
+- **File management**: Quản lý files kết quả với context menu
+- **Configuration UI**: Cấu hình trực quan, không cần edit file
+- **Multi-threading**: UI không bị đóng băng khi xử lý
+
+### 🖼️ Screenshots
+
+```
+┌─────────────────────────────────────────────┐
+│ 🏫 School Process          ● Sẵn sàng       │
+├─────────────┬───────────────────────────────┤
+│ Chức năng   │ 📋 Log & Tiến trình           │
+│             │ ┌─ Tiến trình ───────────────┐│
+│ 📊 Case 1   │ │ ████████████░░  80%        ││
+│ 🔍 Case 2   │ │ Đang chuyển đổi Excel...   ││
+│             │ └───────────────────────────┘│
+│ 👨‍🏫 Giáo viên │ ┌─ Log ─────────────────────┐│
+│ 👨‍🎓 Học sinh  │ │ ✅ Login thành công       ││
+│ 📄 Convert  │ │ 📊 Lấy được 156 giáo viên  ││
+│             │ │ 🔄 Đang tạo Excel...       ││
+│ ⚙️ Cấu hình  │ └───────────────────────────┘│
+└─────────────┴───────────────────────────────┘
+```
+
+### 🚀 Khởi động UI
+
+#### Cách 1: Launcher với Splash Screen (Khuyến nghị)
+```bash
+python main_ui.py
+```
+
+#### Cách 2: Windows Batch File  
+```bash
+start_ui.bat
+# hoặc double-click vào file start_ui.bat
+```
+
+#### Cách 3: Module UI
+```bash
+python app_ui.py
+```
+
+### 📖 Hướng dẫn sử dụng UI
+
+1. **Khởi động**: Chạy `python main_ui.py` hoặc `start_ui.bat`
+2. **Chọn workflow**: Click vào Case 1 hoặc Case 2
+3. **Theo dõi**: Xem tiến trình trong tab "Log & Tiến trình"
+4. **Cấu hình**: Điều chỉnh cài đặt trong tab "Cấu hình"
+5. **Kết quả**: Xem files đã tạo trong tab "Kết quả"
+
+> 📘 **Chi tiết**: Xem file [UI_README.md](UI_README.md) để có hướng dẫn UI đầy đủ
 
 ## 🎯 Sử dụng
 

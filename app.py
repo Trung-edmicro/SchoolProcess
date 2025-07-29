@@ -107,8 +107,8 @@ class SchoolProcessApp:
         
         # Submenu cho OnLuyen API - thêm các chức năng lấy dữ liệu
         options = [
-            "Case 1: Toàn bộ dữ liệu (Sheets → Login → Dữ liệu → Excel)",
-            "Case 2: Dữ liệu theo file import (Sheets → Login → Dữ liệu → So sánh → Excel)",
+            "Case 1: Toàn bộ dữ liệu",
+            "Case 2: Dữ liệu theo file import",
             "Lấy danh sách Giáo viên",
             "Lấy danh sách Học sinh"
         ]
@@ -375,7 +375,12 @@ class SchoolProcessApp:
             print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
             
             extractor = GoogleSheetsExtractor()
-            sheet_name = get_user_input("Nhập tên sheet (mặc định: ED-2025)") or "ED-2025"
+            
+            # Lấy tên sheet với logic fallback
+            sheet_name = self._get_sheet_name_with_fallback(extractor)
+            if not sheet_name:
+                print_status("❌ Không thể xác định tên sheet", "error")
+                return
             
             print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
             school_data = extractor.extract_school_data(sheet_name=sheet_name)
@@ -689,7 +694,12 @@ class SchoolProcessApp:
             print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
             
             extractor = GoogleSheetsExtractor()
-            sheet_name = get_user_input("Nhập tên sheet (mặc định: ED-2025)") or "ED-2025"
+            
+            # Lấy tên sheet với logic fallback
+            sheet_name = self._get_sheet_name_with_fallback(extractor)
+            if not sheet_name:
+                print_status("❌ Không thể xác định tên sheet", "error")
+                return
             
             print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
             school_data = extractor.extract_school_data(sheet_name=sheet_name)
@@ -1722,6 +1732,43 @@ class SchoolProcessApp:
     
 
     
+    
+    def _get_sheet_name_with_fallback(self, extractor):
+        """
+        Lấy tên sheet với logic fallback:
+        1. Thử với ED-2025 trước
+        2. Nếu không có thì yêu cầu nhập tên sheet
+        """
+        try:
+            # Thử với ED-2025 trước
+            print_status("Đang thử tìm sheet 'ED-2025'...", "info")
+            test_data = extractor.extract_school_data(sheet_name="ED-2025")
+            
+            if test_data and len(test_data) > 0:
+                print_status("✅ Tìm thấy sheet 'ED-2025'", "success")
+                return "ED-2025"
+            else:
+                print_status("⚠️ Không tìm thấy sheet 'ED-2025' hoặc sheet trống", "warning")
+                
+                # Yêu cầu nhập tên sheet
+                sheet_name = get_user_input("Nhập tên sheet (bắt buộc):")
+                if not sheet_name:
+                    print_status("❌ Tên sheet không được để trống", "error")
+                    return None
+                    
+                return sheet_name.strip()
+                
+        except Exception as e:
+            print_status(f"⚠️ Lỗi khi thử tìm sheet ED-2025: {e}", "warning")
+            
+            # Fallback: yêu cầu nhập tên sheet
+            sheet_name = get_user_input("Nhập tên sheet:")
+            if not sheet_name:
+                print_status("❌ Tên sheet không được để trống", "error")
+                return None
+                
+            return sheet_name.strip()
+
     def _execute_basic_workflow_steps(self):
         """Thực hiện các bước cơ bản của workflow (dùng chung cho cả 2 case)"""
         basic_results = {
@@ -1740,7 +1787,12 @@ class SchoolProcessApp:
             print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
             
             extractor = GoogleSheetsExtractor()
-            sheet_name = get_user_input("Nhập tên sheet (mặc định: ED-2025)") or "ED-2025"
+            
+            # Lấy tên sheet với logic fallback
+            sheet_name = self._get_sheet_name_with_fallback(extractor)
+            if not sheet_name:
+                print_status("❌ Không thể xác định tên sheet", "error")
+                return None
             
             print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
             school_data = extractor.extract_school_data(sheet_name=sheet_name)
@@ -2126,12 +2178,6 @@ class SchoolProcessApp:
                                 'raw_name': name,
                                 'raw_birthdate': birth
                             })
-                            
-                            # Debug cho Trịnh Hoàng Hiệp
-                            if "hiệp" in name.lower() and "trịnh" in name.lower():
-                                print(f"      🔍 DEBUG Import student: '{name}' → '{normalized_name}'")
-                                print(f"         Birth: '{birth}' → '{normalized_birth}'")
-                                print(f"         Tuple: ('{normalized_name}', '{normalized_birth}')")
                 
                 comparison_results['import_students_count'] = len(students_import_data)
                 print(f"      ✅ Đã parse {len(students_import_data)} học sinh từ import")
@@ -2279,27 +2325,6 @@ class SchoolProcessApp:
                         comparison_results['teachers_matched'] = matched_count
                         print(f"      ✅ Khớp {matched_count}/{len(teachers_import_data)} giáo viên")
                         
-                        # Báo cáo chi tiết về unmatched teachers
-                        if unmatched_onluyen_teachers or unmatched_import_teachers:
-                            print(f"\n      📋 CHI TIẾT TEACHERS KHÔNG KHỚP:")
-                            
-                            if unmatched_import_teachers:
-                                print(f"         🔴 Import teachers không tìm thấy trong OnLuyen ({len(unmatched_import_teachers)}):")
-                                for i, (name, birth) in enumerate(unmatched_import_teachers[:10], 1):
-                                    print(f"            {i}. '{name}' | '{birth}'")
-                                if len(unmatched_import_teachers) > 10:
-                                    print(f"            ... và {len(unmatched_import_teachers) - 10} giáo viên khác")
-                            
-                            if unmatched_onluyen_teachers:
-                                print(f"         🔴 OnLuyen teachers không khớp với import ({len(unmatched_onluyen_teachers)}):")
-                                for i, teacher in enumerate(unmatched_onluyen_teachers[:10], 1):
-                                    print(f"            {i}. '{teacher['raw_name']}' | '{teacher['raw_birth']}'")
-                                    print(f"               → Normalized: '{teacher['normalized_name']}' | '{teacher['normalized_birth']}'")
-                                if len(unmatched_onluyen_teachers) > 10:
-                                    print(f"            ... và {len(unmatched_onluyen_teachers) - 10} giáo viên khác")
-                        else:
-                            print(f"      ✅ Tất cả giáo viên đều khớp hoàn hảo!")
-                    
                     else:
                         print(f"      ⚠️ Không có dữ liệu giáo viên import để so sánh")
             
@@ -2327,9 +2352,7 @@ class SchoolProcessApp:
                         unmatched_onluyen = []  # Danh sách học sinh OnLuyen không khớp
                         unmatched_import = []   # Danh sách học sinh Import không khớp
                         debug_comparison = True  # Set True để debug - ENABLE DEBUG
-                        
-                        print(f"      🔍 DEBUG: Bắt đầu so sánh {len(onluyen_students)} học sinh OnLuyen với {len(import_students_set)} import")
-                        
+                                                
                         # Tạo set để track các import students đã được match
                         matched_import_keys = set()
                         
@@ -2345,23 +2368,7 @@ class SchoolProcessApp:
                             
                             if student_name and student_birth:
                                 student_key = (student_name, student_birth)
-                                
-                                # Debug so sánh
-                                if debug_comparison and "trinh hoang hiep" in student_name.lower():
-                                    print(f"    🔍 Student: '{student_name}' | Birth: '{student_birth}'")
-                                    print(f"        Raw fullName: '{student.get('fullName', '')}'")
-                                    print(f"        Raw birthDate: '{student.get('birthDate', '')}'")
-                                    print(f"        Raw userInfo.displayName: '{user_info.get('displayName', '')}'")
-                                    print(f"        Raw userInfo.userBirthday: '{user_info.get('userBirthday', '')}'")
-                                    print(f"        Student key: {student_key}")
-                                    if student_key in import_students_set:
-                                        print(f"        ✅ MATCH found in import")
-                                    else:
-                                        print(f"        ❌ No match - checking import set:")
-                                        for imp_key in import_students_set:
-                                            if "trinh hoang hiep" in imp_key[0].lower():
-                                                print(f"           Import key: {imp_key}")
-                                
+                            
                                 if student_key in import_students_set:
                                     comparison_results['students_filtered'].append(student)
                                     matched_count += 1
@@ -2391,33 +2398,7 @@ class SchoolProcessApp:
                         
                         # Log kết quả chi tiết
                         print(f"      ✅ Khớp {matched_count}/{len(students_import_data)} học sinh")
-                        
-                        if unmatched_onluyen or unmatched_import:
-                            print(f"\n      📋 LOGGING UNMATCHED CASES:")
-                            
-                            if unmatched_onluyen:
-                                print(f"         🔴 OnLuyen students không khớp ({len(unmatched_onluyen)}):")
-                                for i, student in enumerate(unmatched_onluyen[:10], 1):  # Chỉ log 10 đầu tiên
-                                    print(f"            {i}. '{student['original_name']}' | '{student['original_birth']}'")
-                                    print(f"               → Normalized: '{student['normalized_name']}' | '{student['normalized_birth']}'")
-                                if len(unmatched_onluyen) > 10:
-                                    print(f"            ... và {len(unmatched_onluyen) - 10} học sinh khác")
-                            
-                            if unmatched_import:
-                                print(f"         🔴 Import students không khớp ({len(unmatched_import)}):")
-                                for i, student in enumerate(unmatched_import[:10], 1):  # Chỉ log 10 đầu tiên
-                                    print(f"            {i}. '{student['original_name']}' | '{student['original_birth']}'")
-                                    print(f"               → Normalized: '{student['normalized_name']}' | '{student['normalized_birth']}'")
-                                if len(unmatched_import) > 10:
-                                    print(f"            ... và {len(unmatched_import) - 10} học sinh khác")
-                            
-                            # Lưu unmatched data vào file log
-                            self._save_unmatched_log(unmatched_onluyen, unmatched_import)
-                        else:
-                            print(f"      ✅ Tất cả học sinh đều khớp hoàn hảo!")
-                        
-                        comparison_results['students_matched'] = matched_count
-                        print(f"      ✅ Khớp {matched_count}/{len(students_import_data)} học sinh")
+                    
                     else:
                         # Nếu không có import data, xuất tất cả học sinh
                         print("      ⚠️ Không có dữ liệu học sinh import - Xuất tất cả học sinh OnLuyen")
