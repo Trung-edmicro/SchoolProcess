@@ -668,12 +668,12 @@ class SchoolProcessApp:
         print("   • File phải chứa danh sách email/username cần so sánh")
         print("   • Nếu có nhiều file import_, hệ thống sẽ cho bạn chọn")
         print()
-        
         self._execute_workflow_case_2()
-    
-    def _execute_workflow_case_1(self):
+
+    def _execute_workflow_case_1(self, selected_school_data):
         """Execute Case 1 workflow - toàn bộ dữ liệu"""
-        
+        print("selected_school_data:", selected_school_data)
+
         workflow_results = {
             'sheets_extraction': False,
             'api_login': False, 
@@ -1028,9 +1028,10 @@ class SchoolProcessApp:
             print_status(f"Module không tồn tại: {e}", "error")
         except Exception as e:
             print_status(f"Lỗi trong quy trình tích hợp: {e}", "error")
-    
-    def _execute_workflow_case_2(self):
+
+    def _execute_workflow_case_2(self, selected_school_data):
         """Case 2: Workflow với so sánh file import"""
+        print("selected_school_data:", selected_school_data)
         
         workflow_results = {
             'sheets_extraction': False,

@@ -1,6 +1,6 @@
 """
-Google Sheets Viewer Component
-Hiển thị dữ liệu từ Google Sheets với giao diện giống Google Sheets
+Google Sheets Viewer Component với Tksheet
+Hiển thị dữ liệu từ Google Sheets với giao diện giống Google Sheets sử dụng Tksheet
 """
 
 import tkinter as tk
@@ -12,44 +12,97 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+try:
+    import tksheet
+    TKSHEET_AVAILABLE = True
+except ImportError:
+    # Graceful fallback when tksheet is not installed
+    tksheet = None  # type: ignore
+    TKSHEET_AVAILABLE = False
+    print("⚠️ Module tksheet chưa được cài đặt. Chạy: pip install tksheet")
+
 from config.config_manager import get_config
 from extractors.sheets_extractor import GoogleSheetsExtractor
 
 
 class GoogleSheetsViewer:
-    """Component hiển thị Google Sheets data"""
+    """Component hiển thị Google Sheets data với Tksheet"""
     
     def __init__(self, parent_frame):
         self.parent_frame = parent_frame
         self.config = get_config()
         self.extractor = None
         self.data = []
+        self.sheet_widget = None
+        self.filtered_data = []
         self.setup_ui()
         
     def setup_ui(self):
-        """Thiết lập giao diện"""
-        # Configure parent frame để giống Google Sheets
+        """Thiết lập giao diện với Tksheet"""
+        # Configure parent frame
         self.parent_frame.configure(relief='flat', borderwidth=0)
         
-        # Main container với background trắng
+        # Main container - luôn tạo trước
         self.main_frame = ttk.Frame(self.parent_frame)
         self.main_frame.pack(fill='both', expand=True, padx=0, pady=0)
+        
+        if not TKSHEET_AVAILABLE:
+            self.show_tksheet_error()
+            return
         
         # Header frame với Google colors
         self.create_header()
         
-        # Separator line giống Google Sheets
+        # Separator line
         separator = ttk.Separator(self.main_frame, orient='horizontal')
         separator.pack(fill='x', pady=(0, 1))
         
-        # Sheets table frame
-        self.create_sheets_table()
+        # Tksheet container
+        self.create_tksheet_table()
         
         # Status frame
         self.create_status_bar()
         
         # Load data initially
         self.load_sheets_data()
+        
+    def show_tksheet_error(self):
+        """Hiển thị lỗi khi tksheet chưa cài đặt"""
+        error_frame = ttk.Frame(self.main_frame)
+        error_frame.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        error_label = ttk.Label(error_frame,
+                               text="⚠️ Module 'tksheet' chưa được cài đặt",
+                               font=('Segoe UI', 16, 'bold'),
+                               foreground='red')
+        error_label.pack(pady=20)
+        
+        instruction_label = ttk.Label(error_frame,
+                                     text="Vui lòng chạy lệnh sau để cài đặt:\npip install tksheet",
+                                     font=('Segoe UI', 12),
+                                     justify='center')
+        instruction_label.pack(pady=10)
+        
+        # Thêm button để install tksheet
+        install_btn = ttk.Button(error_frame,
+                                text="📦 Cài đặt Tksheet",
+                                command=self.install_tksheet)
+        install_btn.pack(pady=10)
+        
+    def install_tksheet(self):
+        """Cài đặt tksheet module"""
+        try:
+            import subprocess
+            import sys
+            messagebox.showinfo("Cài đặt", "Đang cài đặt tksheet...\nVui lòng đợi...")
+            result = subprocess.run([sys.executable, "-m", "pip", "install", "tksheet>=7.5.0"], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                messagebox.showinfo("Thành công", "Cài đặt tksheet thành công!\nVui lòng restart ứng dụng.")
+            else:
+                messagebox.showerror("Lỗi", f"Không thể cài đặt tksheet:\n{result.stderr}")
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Lỗi cài đặt: {str(e)}")
         
     def create_header(self):
         """Tạo header với info và controls giống Google Sheets"""
@@ -72,12 +125,12 @@ class GoogleSheetsViewer:
         icon_label.pack(side='left', padx=(0, 8))
         
         title_label = ttk.Label(title_frame,
-                               text="School Process Data",
+                               text="School Process Data - Google Sheets View",
                                font=('Segoe UI', 16, 'bold'),
                                foreground='#1a73e8')
         title_label.pack(side='left')
         
-        # Sheet ID info với Google style
+        # Sheet ID info
         sheet_id = self.config.get_google_config().get('test_sheet_id', '')
         sheet_info_frame = ttk.Frame(title_row)
         sheet_info_frame.pack(side='right')
@@ -108,15 +161,19 @@ class GoogleSheetsViewer:
         self.refresh_btn.pack(side='left', padx=(0, 8))
         
         self.add_btn = ttk.Button(left_toolbar,
-                                 text="➕ Add", 
+                                 text="➕ Add Row", 
                                  command=self.add_row)
         self.add_btn.pack(side='left', padx=(0, 8))
         
         self.save_btn = ttk.Button(left_toolbar,
-                                  text="💾 Save",
-                                  command=self.save_changes,
-                                  state='disabled')
-        self.save_btn.pack(side='left')
+                                  text="💾 Save Changes",
+                                  command=self.save_changes)
+        self.save_btn.pack(side='left', padx=(0, 8))
+        
+        self.export_btn = ttk.Button(left_toolbar,
+                                    text="📤 Export",
+                                    command=self.export_data)
+        self.export_btn.pack(side='left')
         
         # Right toolbar - Search
         right_toolbar = ttk.Frame(toolbar_row)
@@ -131,86 +188,134 @@ class GoogleSheetsViewer:
         
         self.search_var = tk.StringVar()
         self.search_var.trace('w', self.on_search)
-        search_entry = ttk.Entry(search_frame, 
+        self.search_entry = ttk.Entry(search_frame, 
                                 textvariable=self.search_var, 
                                 width=25,
                                 font=('Segoe UI', 10))
-        search_entry.pack(side='left')
-        search_entry.insert(0, "Search data...")
+        self.search_entry.pack(side='left')
+        self.search_entry.insert(0, "Search data...")
         
-    def create_sheets_table(self):
-        """Tạo bảng hiển thị dữ liệu giống Google Sheets"""
+        # Bind events cho search entry
+        self.search_entry.bind('<FocusIn>', self.on_search_focus_in)
+        self.search_entry.bind('<FocusOut>', self.on_search_focus_out)
+        
+    def create_tksheet_table(self):
+        """Tạo bảng Tksheet giống Google Sheets"""
+        if not TKSHEET_AVAILABLE:
+            return
+            
         # Table container với margin giống Google Sheets
         table_container = ttk.Frame(self.main_frame)
         table_container.pack(fill='both', expand=True, padx=15, pady=(0, 10))
         
-        # Định nghĩa columns với widths tối ưu
-        self.columns = [
-            ("stt", "STT", 60),
-            ("id_truong", "ID Trường", 130),
-            ("admin", "Admin", 150), 
-            ("mat_khau", "Mật khẩu", 120),
-            ("link_driver", "Link Driver Dữ liệu", 250),
-            ("so_luong_gv", "SL GV nạp", 100),
-            ("so_luong_hs", "SL HS nạp", 100),
-            ("notes", "Notes", 180)
-        ]
+        # Tạo Tksheet widget
+        self.sheet_widget = tksheet.Sheet(
+            table_container,
+            page_up_down_select_row=True,
+            expand_sheet_if_paste_too_big=True,
+            empty_horizontal=0,
+            empty_vertical=0,
+            show_horizontal_grid=True,
+            show_vertical_grid=True,
+            width=1000,
+            height=500
+        )
         
-        # Treeview với Google Sheets styling
-        style = ttk.Style()
+        # Configure Google Sheets styling
+        self.configure_sheet_styling()
         
-        # Configure Treeview style giống Google Sheets
-        style.configure("Sheets.Treeview",
-                       background="white",
-                       foreground="black",
-                       rowheight=32,
-                       fieldbackground="white",
-                       borderwidth=1,
-                       relief="solid")
-        
-        style.configure("Sheets.Treeview.Heading",
-                       background="#f8f9fa",
-                       foreground="#202124",
-                       font=('Segoe UI', 10, 'bold'),
-                       borderwidth=1,
-                       relief="solid")
-        
-        self.tree = ttk.Treeview(table_container, 
-                                columns=[col[0] for col in self.columns],
-                                show='headings',
-                                height=18,
-                                style="Sheets.Treeview")
-        
-        # Configure columns với Google Sheets headers
-        for col_id, col_text, col_width in self.columns:
-            self.tree.heading(col_id, text=col_text, 
-                             command=lambda c=col_id: self.sort_column(c))
-            self.tree.column(col_id, width=col_width, minwidth=80, anchor='w')
-            
-        # Scrollbars với Google style
-        v_scrollbar = ttk.Scrollbar(table_container, orient='vertical', command=self.tree.yview)
-        h_scrollbar = ttk.Scrollbar(table_container, orient='horizontal', command=self.tree.xview)
-        
-        self.tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-        
-        # Grid layout
-        self.tree.grid(row=0, column=0, sticky='nsew')
-        v_scrollbar.grid(row=0, column=1, sticky='ns')
-        h_scrollbar.grid(row=1, column=0, sticky='ew')
-        
-        table_container.grid_rowconfigure(0, weight=1)
-        table_container.grid_columnconfigure(0, weight=1)
+        # Pack the sheet
+        self.sheet_widget.pack(fill='both', expand=True)
         
         # Bind events
-        self.tree.bind('<Double-1>', self.on_double_click)
-        self.tree.bind('<Button-3>', self.on_right_click)
-        self.tree.bind('<Button-1>', self.on_select)
+        self.setup_sheet_bindings()
         
-        # Configure row colors giống Google Sheets
-        self.tree.tag_configure('oddrow', background='#ffffff')
-        self.tree.tag_configure('evenrow', background='#f8f9fa')
-        self.tree.tag_configure('selected', background='#e8f0fe', foreground='#1a73e8')
-        self.tree.tag_configure('hover', background='#f1f3f4')
+    def configure_sheet_styling(self):
+        """Cấu hình styling giống Google Sheets"""
+        if not self.sheet_widget:
+            return
+            
+        # Google Sheets colors
+        self.sheet_widget.set_options(
+            font=('Segoe UI', 11, 'normal'),
+            header_font=('Segoe UI', 11, 'bold'),
+            table_bg='white',
+            table_fg='black',
+            table_selected_cells_bg='#e8f0fe',
+            table_selected_cells_fg='#1a73e8',
+            table_selected_rows_bg='#e8f0fe',
+            table_selected_rows_fg='#1a73e8',
+            table_selected_columns_bg='#e8f0fe', 
+            table_selected_columns_fg='#1a73e8',
+            header_bg='#f8f9fa',
+            header_fg='#202124',
+            header_selected_cells_bg='#d2e3fc',
+            header_selected_cells_fg='#1a73e8',
+            index_bg='#f8f9fa',
+            index_fg='#202124',
+            index_selected_cells_bg='#d2e3fc',
+            index_selected_cells_fg='#1a73e8',
+            top_left_bg='#f8f9fa',
+            top_left_fg='#202124',
+            outline_thickness=1,
+            outline_color='#dadce0',
+            grid_color='#dadce0',
+            header_border_fg='#dadce0',
+            index_border_fg='#dadce0'
+        )
+        
+        # Enable các tính năng editing
+        self.sheet_widget.enable_bindings([
+            "single_select",
+            "row_select", 
+            "column_select",
+            "column_width_resize",
+            "row_height_resize",
+            "double_click_column_resize",
+            "right_click_popup_menu",
+            "copy",
+            "paste",
+            "delete",
+            "edit_cell"
+        ])
+        
+    def setup_sheet_bindings(self):
+        """Thiết lập event bindings cho sheet"""
+        if not self.sheet_widget:
+            return
+            
+        # Bind cell edit events
+        self.sheet_widget.extra_bindings([
+            ("cell_select", self.on_cell_select),
+            ("begin_edit_cell", self.on_begin_edit),
+            ("end_edit_cell", self.on_end_edit),
+            ("right_click_popup_menu", self.on_right_click)
+        ])
+        
+    def setup_headers_and_columns(self):
+        """Thiết lập headers và columns"""
+        if not self.sheet_widget:
+            return
+            
+        # Định nghĩa headers
+        headers = [
+            "STT",
+            "ID Trường", 
+            "Admin",
+            "Mật khẩu",
+            "Link Driver Dữ liệu",
+            "SL GV nạp",
+            "SL HS nạp", 
+            "Notes"
+        ]
+        
+        # Set headers
+        self.sheet_widget.headers(headers)
+        
+        # Set column widths tối ưu
+        column_widths = [60, 130, 150, 120, 250, 100, 100, 180]
+        for i, width in enumerate(column_widths):
+            self.sheet_widget.column_width(column=i, width=width)
         
     def create_status_bar(self):
         """Tạo status bar giống Google Sheets"""
@@ -236,7 +341,7 @@ class GoogleSheetsViewer:
         right_info = ttk.Frame(status_frame)
         right_info.pack(side='right')
         
-        # Row count với Google style
+        # Row count
         self.row_count_var = tk.StringVar(value="0 rows")
         row_count_label = ttk.Label(right_info, 
                                    textvariable=self.row_count_var,
@@ -254,6 +359,9 @@ class GoogleSheetsViewer:
         
     def load_sheets_data(self):
         """Load dữ liệu từ Google Sheets"""
+        if not TKSHEET_AVAILABLE:
+            return
+            
         try:
             self.status_var.set("🔄 Đang tải dữ liệu từ Google Sheets...")
             self.refresh_btn.config(state='disabled')
@@ -272,13 +380,13 @@ class GoogleSheetsViewer:
             
             # Định nghĩa columns cần extract
             required_columns = [
-                'Tên trường',  # ID Trường
-                'Admin',       # Admin
-                'Mật khẩu',    # Mật khẩu
-                'Link driver dữ liệu',  # Link driver
-                'Số lượng GV nạp',  # Số lượng GV (optional)
-                'Số lượng HS nạp',  # Số lượng HS (optional)
-                'Notes'        # Notes (optional)
+                'Tên trường',
+                'Admin', 
+                'Mật khẩu',
+                'Link driver dữ liệu',
+                'Số lượng GV nạp',
+                'Số lượng HS nạp',
+                'Notes'
             ]
             
             # Get data from sheets
@@ -292,8 +400,9 @@ class GoogleSheetsViewer:
                 self.row_count_var.set("0 rows")
                 return
                 
-            # Parse và hiển thị data
-            self.parse_and_display_data(sheet_data)
+            # Setup headers và load data
+            self.setup_headers_and_columns()
+            self.load_data_to_sheet(sheet_data)
             
             # Update status
             from datetime import datetime
@@ -309,112 +418,63 @@ class GoogleSheetsViewer:
         finally:
             self.refresh_btn.config(state='normal')
             
-    def parse_and_display_data(self, sheet_data):
-        """Parse và hiển thị dữ liệu lên bảng"""
-        # Clear existing data
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+    def load_data_to_sheet(self, sheet_data):
+        """Load dữ liệu vào Tksheet"""
+        if not self.sheet_widget or not sheet_data:
+            return
             
-        self.data = []
+        # Clear existing data
+        self.sheet_widget.set_sheet_data([[]])
         
-        # Kiểm tra cấu trúc dữ liệu trả về từ extractor
-        if not sheet_data or 'data' not in sheet_data:
+        # Parse data
+        if 'data' not in sheet_data:
             self.row_count_var.set("0 rows")
-            self.status_var.set("❌ Không có dữ liệu hoặc cấu trúc dữ liệu không đúng")
             return
             
         rows = sheet_data['data']
-        metadata = sheet_data.get('metadata', {})
-        
         if not rows:
             self.row_count_var.set("0 rows")
-            self.status_var.set("⚠️ Sheet không có dữ liệu")
             return
         
-        # Mapping từ columns extractor về columns hiển thị
-        extractor_to_display = {
-            'Tên trường': 'id_truong',
-            'Admin': 'admin',
-            'Mật khẩu': 'mat_khau',
-            'Link driver dữ liệu': 'link_driver'
-        }
+        # Convert data to table format
+        table_data = []
+        self.data = []
         
-        # Process data từ extractor
         for i, row in enumerate(rows):
-            # Extract data theo mapping
-            row_data = {
-                'stt': i + 1,
-                'id_truong': row.get('Tên trường', '') or '',
-                'admin': row.get('Admin', '') or '',
-                'mat_khau': row.get('Mật khẩu', '') or '',  # Sẽ được map từ 'Password'
-                'link_driver': row.get('Link driver dữ liệu', '') or '',
-                'so_luong_gv': row.get('Số lượng GV nạp', '') or '',  
-                'so_luong_hs': row.get('Số lượng HS nạp', '') or '',  
-                'notes': row.get('Notes', '') or ''  
-            }
-            
+            row_data = [
+                i + 1,  # STT
+                row.get('Tên trường', '') or '',
+                row.get('Admin', '') or '',
+                row.get('Mật khẩu', '') or '',
+                row.get('Link driver dữ liệu', '') or '',
+                row.get('Số lượng GV nạp', '') or '',
+                row.get('Số lượng HS nạp', '') or '',
+                row.get('Notes', '') or ''
+            ]
+            table_data.append(row_data)
             self.data.append(row_data)
+        
+        # Set data to sheet
+        self.sheet_widget.set_sheet_data(table_data)
+        self.filtered_data = table_data.copy()
+        
+        # Update row count
+        self.row_count_var.set(f"{len(table_data)} rows")
+        
+        # Auto-fit columns
+        self.auto_fit_columns()
+        
+    def auto_fit_columns(self):
+        """Tự động điều chỉnh độ rộng cột"""
+        if not self.sheet_widget:
+            return
             
-            # Insert vào tree với alternating colors
-            tag = 'evenrow' if i % 2 == 0 else 'oddrow'
-            self.tree.insert('', 'end', values=list(row_data.values()), tags=(tag,))
-            
-        # Update metadata info
-        found_columns = metadata.get('found_columns', {})
-        missing_columns = metadata.get('missing_columns', [])
-        
-        status_msg = f"✅ Tải {len(rows)} rows"
-        if found_columns:
-            status_msg += f" | Found: {', '.join(found_columns.keys())}"
-        if missing_columns:
-            status_msg += f" | Missing: {', '.join(missing_columns)}"
-            
-        self.status_var.set(status_msg)
-        self.row_count_var.set(f"{len(rows)} rows")
-        
-    def create_header_mapping(self, headers):
-        """Tạo mapping từ headers thực tế sang columns của chúng ta"""
-        # Mapping keywords to find relevant columns
-        mapping_keywords = {
-            'id_truong': ['id', 'truong', 'school', 'mã'],
-            'admin': ['admin', 'user', 'tài khoản'],
-            'mat_khau': ['password', 'mật khẩu', 'pass'],
-            'link_driver': ['link', 'drive', 'driver', 'url'],
-            'so_luong_gv': ['gv', 'giáo viên', 'teacher', 'số lượng gv'],
-            'so_luong_hs': ['hs', 'học sinh', 'student', 'số lượng hs'],
-            'notes': ['note', 'ghi chú', 'comment', 'remark']
-        }
-        
-        header_mapping = {}
-        
-        for col_key, keywords in mapping_keywords.items():
-            for i, header in enumerate(headers):
-                header_lower = str(header).lower()
-                if any(keyword in header_lower for keyword in keywords):
-                    header_mapping[col_key] = i
-                    break
-                    
-        return header_mapping
-        
-    def extract_row_data(self, row, header_mapping, stt):
-        """Extract data từ row theo mapping"""
-        row_data = {
-            'stt': stt,
-            'id_truong': '',
-            'admin': '',
-            'mat_khau': '',
-            'link_driver': '',
-            'so_luong_gv': '',
-            'so_luong_hs': '',
-            'notes': ''
-        }
-        
-        # Fill data theo mapping
-        for col_key, col_index in header_mapping.items():
-            if col_index < len(row):
-                row_data[col_key] = str(row[col_index]) if row[col_index] else ''
-                
-        return row_data
+        try:
+            # Auto-fit các cột quan trọng
+            for col in range(self.sheet_widget.get_total_columns()):
+                self.sheet_widget.set_column_width(column=col, width="displayed_text")
+        except:
+            pass  # Fallback nếu auto-fit không thành công
         
     def refresh_data(self):
         """Refresh dữ liệu"""
@@ -422,60 +482,296 @@ class GoogleSheetsViewer:
         
     def add_row(self):
         """Thêm row mới"""
-        # TODO: Implement add row functionality
-        messagebox.showinfo("Chức năng", "Chức năng thêm row sẽ được triển khai sau")
+        if not self.sheet_widget:
+            messagebox.showwarning("Thông báo", "Sheet chưa được khởi tạo")
+            return
+            
+        # Thêm row trống
+        new_row = ["", "", "", "", "", "", "", ""]
+        current_data = self.sheet_widget.get_sheet_data()
+        current_data.append(new_row)
+        self.sheet_widget.set_sheet_data(current_data)
+        
+        # Update row count
+        self.row_count_var.set(f"{len(current_data)} rows")
+        
+        # Focus vào row mới
+        new_row_index = len(current_data) - 1
+        self.sheet_widget.select_row(new_row_index)
+        self.sheet_widget.see(row=new_row_index, column=0)
         
     def save_changes(self):
         """Lưu thay đổi"""
-        # TODO: Implement save functionality  
-        messagebox.showinfo("Chức năng", "Chức năng lưu thay đổi sẽ được triển khai sau")
+        if not self.sheet_widget:
+            return
+            
+        try:
+            # Get current data from sheet
+            current_data = self.sheet_widget.get_sheet_data()
+            
+            messagebox.showinfo("Lưu thay đổi", 
+                              f"Đã lưu {len(current_data)} rows.\n\n"
+                              "Lưu ý: Đây là demo - dữ liệu chưa được đồng bộ về Google Sheets.")
+                              
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể lưu thay đổi:\n{str(e)}")
+            
+    def export_data(self):
+        """Export dữ liệu"""
+        if not self.sheet_widget:
+            return
+            
+        try:
+            from tkinter import filedialog
+            import csv
+            
+            # Chọn file để save
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                title="Xuất dữ liệu"
+            )
+            
+            if file_path:
+                # Get data và headers
+                data = self.sheet_widget.get_sheet_data()
+                headers = ["STT", "ID Trường", "Admin", "Mật khẩu", 
+                          "Link Driver Dữ liệu", "SL GV nạp", "SL HS nạp", "Notes"]
+                
+                # Write to CSV
+                with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(headers)
+                    writer.writerows(data)
+                    
+                messagebox.showinfo("Xuất dữ liệu", f"Đã xuất dữ liệu thành công!\nFile: {file_path}")
+                
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể xuất dữ liệu:\n{str(e)}")
         
     def on_search(self, *args):
-        """Xử lý search"""
+        """Xử lý search với Tksheet"""
+        if not self.sheet_widget:
+            return
+            
         search_term = self.search_var.get().lower()
         
-        # Clear current display
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        # Nếu search term là placeholder thì bỏ qua
+        if search_term == "search data...":
+            return
             
-        # Filter và hiển thị data
-        filtered_count = 0
-        for i, row_data in enumerate(self.data):
+        if not search_term:
+            # Hiển thị lại tất cả data
+            self.sheet_widget.set_sheet_data(self.data)
+            self.row_count_var.set(f"{len(self.data)} rows")
+            return
+            
+        # Filter data
+        filtered_data = []
+        for row in self.data:
             # Check if search term matches any column
-            match = any(search_term in str(value).lower() for value in row_data.values())
-            
-            if not search_term or match:
-                tag = 'evenrow' if filtered_count % 2 == 0 else 'oddrow'
-                self.tree.insert('', 'end', values=list(row_data.values()), tags=(tag,))
-                filtered_count += 1
+            match = any(search_term in str(cell).lower() for cell in row)
+            if match:
+                filtered_data.append(row)
                 
-        self.row_count_var.set(f"{filtered_count} rows" + (f" (filtered from {len(self.data)})" if search_term else ""))
+        # Update sheet với filtered data
+        self.sheet_widget.set_sheet_data(filtered_data)
+        self.filtered_data = filtered_data
         
-    def on_double_click(self, event):
-        """Xử lý double click để edit"""
-        # TODO: Implement edit functionality
-        item = self.tree.selection()[0] if self.tree.selection() else None
-        if item:
-            values = self.tree.item(item, 'values')
-            messagebox.showinfo("Edit Row", f"Chức năng edit sẽ được triển khai sau\nRow data: {values[0]} - {values[1]}")
+        # Update row count
+        total_rows = len(self.data)
+        filtered_rows = len(filtered_data)
+        self.row_count_var.set(f"{filtered_rows} rows (filtered from {total_rows})")
+        
+    def on_search_focus_in(self, event):
+        """Xử lý khi focus vào search entry"""
+        if self.search_entry.get() == "Search data...":
+            self.search_entry.delete(0, tk.END)
             
-    def on_select(self, event):
-        """Xử lý selection event"""
-        selected_items = self.tree.selection()
-        if selected_items:
-            # Highlight selected row
-            for item in selected_items:
-                self.tree.set(item, values=self.tree.item(item, 'values'))
+    def on_search_focus_out(self, event):
+        """Xử lý khi focus ra khỏi search entry"""
+        if not self.search_entry.get():
+            self.search_entry.insert(0, "Search data...")
+            
+    def on_cell_select(self, event):
+        """Xử lý khi select cell"""
+        # Update status với thông tin cell hiện tại
+        try:
+            row = event.row
+            col = event.column
+            if row is not None and col is not None:
+                headers = ["STT", "ID Trường", "Admin", "Mật khẩu", 
+                          "Link Driver Dữ liệu", "SL GV nạp", "SL HS nạp", "Notes"]
+                col_name = headers[col] if col < len(headers) else f"Column {col}"
+                self.status_var.set(f"📍 Selected: {col_name} - Row {row + 1}")
+        except:
+            pass
+            
+    def on_begin_edit(self, event):
+        """Xử lý khi bắt đầu edit cell"""
+        try:
+            row = event.row
+            col = event.column
+            if row is not None and col is not None:
+                self.status_var.set(f"✏️ Editing cell Row {row + 1}, Column {col + 1}")
+        except:
+            pass
+            
+    def on_end_edit(self, event):
+        """Xử lý khi kết thúc edit cell"""
+        try:
+            row = event.row
+            col = event.column 
+            if row is not None and col is not None:
+                # Cập nhật data backup
+                current_data = self.sheet_widget.get_sheet_data()
+                if search_term := self.search_var.get().lower():
+                    if search_term != "search data...":
+                        # Nếu đang filter thì cập nhật cả original data
+                        self.update_original_data_after_edit(row, col, current_data[row][col])
+                else:
+                    self.data = current_data.copy()
+                    
+                self.status_var.set(f"✅ Saved changes to Row {row + 1}, Column {col + 1}")
+        except:
+            pass
+            
+    def update_original_data_after_edit(self, filtered_row, col, new_value):
+        """Cập nhật original data sau khi edit trong filtered view"""
+        try:
+            # Tìm row tương ứng trong original data
+            filtered_data = self.sheet_widget.get_sheet_data()
+            if filtered_row < len(filtered_data):
+                row_data = filtered_data[filtered_row]
+                # Tìm trong original data dựa trên STT hoặc unique identifier
+                stt = row_data[0]  # STT column
+                for i, orig_row in enumerate(self.data):
+                    if orig_row[0] == stt:
+                        self.data[i][col] = new_value
+                        break
+        except:
+            pass
             
     def on_right_click(self, event):
         """Xử lý right click menu"""
-        # TODO: Implement context menu với các options như Google Sheets
-        item = self.tree.identify_row(event.y)
-        if item:
-            self.tree.selection_set(item)
-            # Context menu sẽ được implement sau
+        try:
+            # Tạo context menu đơn giản
+            menu = tk.Menu(self.sheet_widget, tearoff=0)
+            menu.add_command(label="📋 Copy", command=lambda: self.sheet_widget.copy())
+            menu.add_command(label="📄 Paste", command=lambda: self.sheet_widget.paste())
+            menu.add_separator()
+            menu.add_command(label="➕ Insert Row Above", command=self.insert_row_above)
+            menu.add_command(label="➕ Insert Row Below", command=self.insert_row_below)
+            menu.add_separator()
+            menu.add_command(label="❌ Delete Row", command=self.delete_selected_row)
             
-    def sort_column(self, col):
-        """Sort column"""
-        # TODO: Implement sorting như Google Sheets
-        messagebox.showinfo("Sort", f"Chức năng sort column '{col}' sẽ được triển khai sau")
+            # Show menu
+            menu.tk_popup(event.x_root, event.y_root)
+        except:
+            pass
+            
+    def insert_row_above(self):
+        """Chèn row trống phía trên row hiện tại"""
+        try:
+            selected_rows = self.sheet_widget.get_selected_rows()
+            if selected_rows:
+                row_index = min(selected_rows)
+                new_row = ["", "", "", "", "", "", "", ""]
+                self.sheet_widget.insert_row(row_index, new_row)
+                self.update_row_count()
+        except:
+            pass
+            
+    def insert_row_below(self):
+        """Chèn row trống phía dưới row hiện tại"""
+        try:
+            selected_rows = self.sheet_widget.get_selected_rows()
+            if selected_rows:
+                row_index = max(selected_rows) + 1
+                new_row = ["", "", "", "", "", "", "", ""]
+                self.sheet_widget.insert_row(row_index, new_row)
+                self.update_row_count()
+        except:
+            pass
+            
+    def delete_selected_row(self):
+        """Xóa row được chọn"""
+        try:
+            selected_rows = self.sheet_widget.get_selected_rows()
+            if selected_rows:
+                # Confirm deletion
+                if messagebox.askyesno("Xác nhận", f"Bạn có chắc muốn xóa {len(selected_rows)} row(s)?"):
+                    # Delete from highest index to lowest to avoid index shifting
+                    for row_index in sorted(selected_rows, reverse=True):
+                        self.sheet_widget.delete_row(row_index)
+                    self.update_row_count()
+        except:
+            pass
+            
+    def update_row_count(self):
+        """Cập nhật row count sau khi thêm/xóa row"""
+        try:
+            current_data = self.sheet_widget.get_sheet_data()
+            self.row_count_var.set(f"{len(current_data)} rows")
+        except:
+            pass
+            
+    def get_selected_row_data(self):
+        """Lấy dữ liệu từ row được chọn để xử lý workflow"""
+        try:
+            if not self.sheet_widget:
+                return None
+                
+            selected_rows = self.sheet_widget.get_selected_rows()
+            if not selected_rows:
+                return None
+                
+            # Lấy row đầu tiên được chọn
+            row_index = min(selected_rows)
+            current_data = self.sheet_widget.get_sheet_data()
+            
+            if row_index >= len(current_data):
+                return None
+                
+            row_data = current_data[row_index]
+            
+            # Convert sang dictionary format như extractor trả về
+            school_data = {
+                'STT': row_data[0] if len(row_data) > 0 else '',
+                'Tên trường': row_data[1] if len(row_data) > 1 else '',
+                'Admin': row_data[2] if len(row_data) > 2 else '',
+                'Mật khẩu': row_data[3] if len(row_data) > 3 else '',
+                'Link driver dữ liệu': row_data[4] if len(row_data) > 4 else '',
+                'Số lượng GV nạp': row_data[5] if len(row_data) > 5 else '',
+                'Số lượng HS nạp': row_data[6] if len(row_data) > 6 else '',
+                'Notes': row_data[7] if len(row_data) > 7 else ''
+            }
+            
+            return school_data
+            
+        except Exception as e:
+            print(f"Error getting selected row data: {e}")
+            return None
+            
+    def get_selected_row_info(self):
+        """Lấy thông tin về row được chọn (cho hiển thị)"""
+        try:
+            if not self.sheet_widget:
+                return "Không có sheet data"
+                
+            selected_rows = self.sheet_widget.get_selected_rows()
+            if not selected_rows:
+                return "Chưa chọn row nào"
+                
+            row_index = min(selected_rows)
+            school_data = self.get_selected_row_data()
+            
+            if school_data:
+                school_name = school_data.get('Tên trường', 'N/A')
+                admin_email = school_data.get('Admin', 'N/A')
+                return f"Row {row_index + 1}: {school_name} ({admin_email})"
+            else:
+                return f"Row {row_index + 1}: Dữ liệu không hợp lệ"
+                
+        except Exception as e:
+            return f"Lỗi: {str(e)}"

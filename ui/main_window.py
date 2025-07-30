@@ -598,10 +598,25 @@ class SchoolProcessMainWindow:
             messagebox.showwarning("Cảnh báo", "Hệ thống đang xử lý. Vui lòng đợi.")
             return
             
-        self.log_message("Bắt đầu Workflow Case 1: Toàn bộ dữ liệu", "header")
+        # Kiểm tra xem có sheets_viewer và có row được chọn không
+        if not hasattr(self, 'sheets_viewer'):
+            messagebox.showerror("Lỗi", "Google Sheets viewer chưa được khởi tạo.")
+            return
+            
+        selected_row_data = self.sheets_viewer.get_selected_row_data()
+        if not selected_row_data:
+            messagebox.showwarning("Cảnh báo", 
+                                 "Vui lòng chọn một row (trường học) trong Google Sheets để xử lý.\n\n" +
+                                 "Click vào số thứ tự hàng bên trái để chọn row.")
+            return
+            
+        # Hiển thị thông tin row được chọn
+        row_info = self.sheets_viewer.get_selected_row_info()
+        self.log_message(f"Bắt đầu Workflow Case 1: Toàn bộ dữ liệu", "header")
+        self.log_message(f"📋 Xử lý trường: {row_info}", "info")
         
         # Run in thread to prevent UI blocking
-        thread = threading.Thread(target=self._execute_workflow_case1)
+        thread = threading.Thread(target=self._execute_workflow_case1, args=(selected_row_data,))
         thread.daemon = True
         thread.start()
         
@@ -611,14 +626,29 @@ class SchoolProcessMainWindow:
             messagebox.showwarning("Cảnh báo", "Hệ thống đang xử lý. Vui lòng đợi.")
             return
             
-        self.log_message("Bắt đầu Workflow Case 2: Dữ liệu theo file import", "header")
+        # Kiểm tra xem có sheets_viewer và có row được chọn không
+        if not hasattr(self, 'sheets_viewer'):
+            messagebox.showerror("Lỗi", "Google Sheets viewer chưa được khởi tạo.")
+            return
+            
+        selected_row_data = self.sheets_viewer.get_selected_row_data()
+        if not selected_row_data:
+            messagebox.showwarning("Cảnh báo", 
+                                 "Vui lòng chọn một row (trường học) trong Google Sheets để xử lý.\n\n" +
+                                 "Click vào số thứ tự hàng bên trái để chọn row.")
+            return
+            
+        # Hiển thị thông tin row được chọn
+        row_info = self.sheets_viewer.get_selected_row_info()
+        self.log_message(f"Bắt đầu Workflow Case 2: Dữ liệu theo file import", "header")
+        self.log_message(f"📋 Xử lý trường: {row_info}", "info")
         
         # Run in thread to prevent UI blocking
-        thread = threading.Thread(target=self._execute_workflow_case2)
+        thread = threading.Thread(target=self._execute_workflow_case2, args=(selected_row_data,))
         thread.daemon = True
         thread.start()
         
-    def _execute_workflow_case1(self):
+    def _execute_workflow_case1(self, selected_school_data):
         """Execute workflow case 1 trong thread"""
         try:
             self.is_processing = True
@@ -633,8 +663,8 @@ class SchoolProcessMainWindow:
             
             self.update_progress_safe(20, "Bắt đầu xử lý...")
             
-            # Execute actual workflow
-            console_app._execute_workflow_case_1()
+            # Execute actual workflow với selected school data
+            console_app._execute_workflow_case_1(selected_school_data)
             
             self.update_progress_safe(100, "Hoàn thành")
             self.log_message_safe("Workflow Case 1 hoàn thành!", "success")
@@ -647,7 +677,7 @@ class SchoolProcessMainWindow:
             self.is_processing = False
             self.update_button_state_safe(self.btn_stop, 'disabled')
             
-    def _execute_workflow_case2(self):
+    def _execute_workflow_case2(self, selected_school_data):
         """Execute workflow case 2 trong thread"""
         try:
             self.is_processing = True
@@ -662,8 +692,8 @@ class SchoolProcessMainWindow:
             
             self.update_progress_safe(20, "Bắt đầu xử lý...")
             
-            # Execute actual workflow
-            console_app._execute_workflow_case_2()
+            # Execute actual workflow với selected school data
+            console_app._execute_workflow_case_2(selected_school_data)
             
             self.update_progress_safe(100, "Hoàn thành")
             self.log_message_safe("Workflow Case 2 hoàn thành!", "success")

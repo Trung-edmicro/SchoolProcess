@@ -16,7 +16,8 @@ try:
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+    import io
     GOOGLE_OAUTH_AVAILABLE = True
 except ImportError:
     GOOGLE_OAUTH_AVAILABLE = False
@@ -340,6 +341,85 @@ class GoogleOAuthDriveClient:
             
         except Exception as e:
             print_status(f"⚠️ Lỗi thu hồi credentials: {e}", "warning")
+    
+    def list_files_in_folder(self, folder_id: str):
+        """Liệt kê tất cả file trong folder"""
+        if not self.is_authenticated():
+            return []
+        
+        try:
+            query = f"'{folder_id}' in parents and trashed=false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="nextPageToken, files(id, name, mimeType, modifiedTime, size)"
+            ).execute()
+            
+            files = results.get('files', [])
+            print_status(f"✅ Tìm thấy {len(files)} file trong folder", "info")
+            
+            return files
+            
+        except Exception as e:
+            print_status(f"❌ Lỗi khi liệt kê file: {e}", "error")
+            return []
+    
+    def find_import_files(self, folder_id: str):
+        """Tìm tất cả file import (bắt đầu bằng 'import_') trong folder"""
+        if not self.is_authenticated():
+            return []
+        
+        try:
+            # Tìm file với pattern "import_" và phần mở rộng .xlsx/.xls
+            query = f"parents in '{folder_id}' and trashed=false and name contains 'import_' and (name contains '.xlsx' or name contains '.xls')"
+            
+            results = self.drive_service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name)',
+                pageSize=100
+            ).execute()
+            
+            files = results.get('files', [])
+            
+            # Lọc thêm để chỉ lấy file thực sự bắt đầu bằng "import_"
+            import_files = []
+            for file in files:
+                filename = file['name'].lower()
+                if filename.startswith('import_') and (filename.endswith('.xlsx') or filename.endswith('.xls')):
+                    import_files.append(file)
+            
+            print_status(f"✅ Tìm thấy {len(import_files)} file import", "info")
+            return import_files
+                
+        except Exception as e:
+            print_status(f"❌ Lỗi tìm file import: {e}", "error")
+            return []
+    
+    def download_file(self, file_id: str, filename: str, local_dir: str = "data/temp"):
+        """Tải file từ Drive về local"""
+        if not self.is_authenticated():
+            return None
+        
+        try:
+            # Tạo thư mục nếu chưa có
+            os.makedirs(local_dir, exist_ok=True)
+            local_path = os.path.join(local_dir, filename)
+            
+            # Download file
+            request = self.drive_service.files().get_media(fileId=file_id)
+            
+            with open(local_path, 'wb') as f:
+                downloader = MediaIoBaseDownload(f, request)
+                done = False
+                while done is False:
+                    status, done = downloader.next_chunk()
+            
+            print_status(f"✅ Đã tải file: {filename}", "success")
+            return local_path
+            
+        except Exception as e:
+            print_status(f"❌ Lỗi download file {filename}: {e}", "error")
+            return None
 
 
 def create_oauth_credentials_template():
