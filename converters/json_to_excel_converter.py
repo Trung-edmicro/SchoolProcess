@@ -187,11 +187,14 @@ class JSONToExcelTemplateConverter:
                         student_record
                     )
                     
+                    groupClass = student_record.get('groupClass', [])
+
                     student_info = {
                         'STT': idx,
                         'Họ và tên': user_info.get('displayName', ''),
                         'Ngày sinh': user_info.get('userBirthday', ''),
-                        'Lớp chính': student_record.get('grade', ''),
+                        'Khối': student_record.get('grade', ''),
+                        'Lớp': groupClass[0].get('className', '') if groupClass else '',
                         'Tài khoản': user_info.get('userName', ''),
                         'Mật khẩu lần đầu': user_info.get('pwd', ''),
                         'Mã đăng nhập cho PH': user_info.get('codePin', '')
@@ -266,7 +269,7 @@ class JSONToExcelTemplateConverter:
             # Chỉ cập nhật nội dung các ô merged chính
             
             # 1. Cập nhật A1 (merged A1:D1) - Tên trường
-            admin_sheet['A1'] = f"Tên trường: {self.school_name}"
+            admin_sheet['A1'] = f"{self.school_name}"
             admin_sheet['A1'].font = Font(bold=True, size=14, name='Calibri')
             admin_sheet['A1'].alignment = self.center_alignment
             print(f"   ✅ A1 (merged A1:D1): Tên trường")
@@ -549,7 +552,7 @@ class JSONToExcelTemplateConverter:
                 'B': 30,  # Tên giáo viên - rộng hơn cho tên dài
                 'C': 15,  # Ngày sinh
                 'D': 40,  # Tên đăng nhập - rộng hơn cho email
-                'E': 25   # Mật khẩu
+                'E': 30   # Mật khẩu
             }
             for col, width in column_widths.items():
                 teachers_sheet.column_dimensions[col].width = width
@@ -558,6 +561,11 @@ class JSONToExcelTemplateConverter:
             for row_num in range(1, len(self.teachers_df) + 2):
                 teachers_sheet.row_dimensions[row_num].height = 20
             
+            # Căn giữa toàn bộ header (hàng 1)
+            for col in range(1, max_data_col + 1):
+                cell = teachers_sheet.cell(row=1, column=col)
+                cell.alignment = self.center_alignment
+
             print(f"✅ Đã điền {len(self.teachers_df)} giáo viên vào sheet GIAO-VIEN")
             return True
             
@@ -582,30 +590,34 @@ class JSONToExcelTemplateConverter:
                 row_num = idx + 2
                 
                 students_sheet[f'A{row_num}'] = row['STT']
-                students_sheet[f'B{row_num}'] = row['Họ và tên']
-                students_sheet[f'C{row_num}'] = row['Ngày sinh']
-                students_sheet[f'D{row_num}'] = row['Lớp chính']
-                students_sheet[f'E{row_num}'] = row['Tài khoản']
-                students_sheet[f'F{row_num}'] = row['Mật khẩu lần đầu']
-                students_sheet[f'G{row_num}'] = row['Mã đăng nhập cho PH']
+                # students_sheet[f'B{row_num}'] = row['Mã học sinh']
+                students_sheet[f'C{row_num}'] = row['Họ và tên']
+                students_sheet[f'D{row_num}'] = row['Ngày sinh']
+                students_sheet[f'E{row_num}'] = row['Khối']
+                students_sheet[f'F{row_num}'] = row['Lớp']
+                students_sheet[f'G{row_num}'] = row['Tài khoản']
+                students_sheet[f'H{row_num}'] = row['Mật khẩu lần đầu']
+                students_sheet[f'I{row_num}'] = row['Mã đăng nhập cho PH']
             
             # Áp dụng border và alignment chuẩn như base_processor
             max_data_row = len(self.students_df) + 1  # +1 cho header
-            max_data_col = 7  # 7 cột: STT, Họ tên, Ngày sinh, Lớp, Tài khoản, Mật khẩu, Mã PH
+            max_data_col = 9
             
             # Các cột cần căn giữa: STT (1), Ngày sinh (3), Lớp (4), Mật khẩu (6), Mã PH (7)
-            center_columns = [1, 3, 4, 6, 7]
+            center_columns = [1, 2, 4, 5, 6, 8, 9]
             self.apply_border_to_sheet(students_sheet, max_data_row, max_data_col, center_columns)
             
             # Auto-adjust column widths theo chuẩn Mode 1
             column_widths = {
-                'A': 8,   # STT
-                'B': 30,  # Họ và tên - rộng hơn cho tên dài
-                'C': 15,  # Ngày sinh
-                'D': 20,  # Lớp chính
-                'E': 40,  # Tài khoản - rộng hơn cho username/email
-                'F': 20,  # Mật khẩu lần đầu
-                'G': 20   # Mã đăng nhập cho PH
+                'A': 8,    # STT
+                # 'B': 0,   # Mã học sinh
+                'C': 30,   # Họ và tên
+                'D': 15,   # Ngày sinh
+                'E': 10,   # Khối
+                'F': 15,   # Lớp
+                'G': 30,   # Tài khoản
+                'H': 20,   # Mật khẩu lần đầu
+                'I': 25    # Mã đăng nhập cho PH
             }
             for col, width in column_widths.items():
                 students_sheet.column_dimensions[col].width = width
@@ -614,6 +626,11 @@ class JSONToExcelTemplateConverter:
             for row_num in range(1, len(self.students_df) + 2):
                 students_sheet.row_dimensions[row_num].height = 20
             
+            # Căn giữa toàn bộ header (hàng 1)
+            for col in range(1, max_data_col + 1):
+                cell = students_sheet.cell(row=1, column=col)
+                cell.alignment = self.center_alignment
+
             print(f"✅ Đã điền {len(self.students_df)} học sinh vào sheet HOC-SINH")
             return True
             

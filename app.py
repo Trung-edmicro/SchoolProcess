@@ -665,6 +665,7 @@ class SchoolProcessApp:
         print("   • File import phải có tên bắt đầu bằng 'import_' và kết thúc bằng '.xlsx'")
         print("   • Ví dụ: import_data.xlsx, import_truong_abc.xlsx")
         print("   • File import phải nằm trong Drive folder từ 'Link driver dữ liệu'")
+
         print("   • File phải chứa danh sách email/username cần so sánh")
         print("   • Nếu có nhiều file import_, hệ thống sẽ cho bạn chọn")
         print()
@@ -672,7 +673,6 @@ class SchoolProcessApp:
 
     def _execute_workflow_case_1(self, selected_school_data):
         """Execute Case 1 workflow - toàn bộ dữ liệu"""
-        print("selected_school_data:", selected_school_data)
 
         workflow_results = {
             'sheets_extraction': False,
@@ -691,54 +691,54 @@ class SchoolProcessApp:
         
         try:
             # Bước 1: Trích xuất dữ liệu từ Google Sheets
-            print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
+            # print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
             
-            extractor = GoogleSheetsExtractor()
+            # extractor = GoogleSheetsExtractor()
             
-            # Lấy tên sheet với logic fallback
-            sheet_name = self._get_sheet_name_with_fallback(extractor)
-            if not sheet_name:
-                print_status("❌ Không thể xác định tên sheet", "error")
-                return
+            # # Lấy tên sheet với logic fallback
+            # sheet_name = self._get_sheet_name_with_fallback(extractor)
+            # if not sheet_name:
+            #     print_status("❌ Không thể xác định tên sheet", "error")
+            #     return
             
-            print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
-            school_data = extractor.extract_school_data(sheet_name=sheet_name)
+            # print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
+            # school_data = extractor.extract_school_data(sheet_name=sheet_name)
             
-            if not school_data:
-                print_status("❌ Không thể trích xuất dữ liệu từ Google Sheets", "error")
-                return
+            # if not school_data:
+            #     print_status("❌ Không thể trích xuất dữ liệu từ Google Sheets", "error")
+            #     return
             
-            workflow_results['sheets_extraction'] = True
-            print_status(f"✅ Đã trích xuất {len(school_data)} trường học", "success")
+            # workflow_results['sheets_extraction'] = True
+            # print_status(f"✅ Đã trích xuất {len(school_data)} trường học", "success")
             
-            # Chọn trường để xử lý
-            if len(school_data) == 1:
-                selected_school = school_data[0]
-                print_status("Tự động chọn trường duy nhất", "info")
-            else:
-                print("\n📋 DANH SÁCH TRƯỜNG ĐÃ TRÍCH XUẤT:")
-                for i, school in enumerate(school_data, 1):
-                    school_name = school.get('Tên trường', 'N/A')
-                    admin_email = school.get('Admin', 'N/A')
-                    print(f"   {i}. {school_name} (Admin: {admin_email})")
+            # # Chọn trường để xử lý
+            # if len(school_data) == 1:
+            #     selected_school = school_data[0]
+            #     print_status("Tự động chọn trường duy nhất", "info")
+            # else:
+            #     print("\n📋 DANH SÁCH TRƯỜNG ĐÃ TRÍCH XUẤT:")
+            #     for i, school in enumerate(school_data, 1):
+            #         school_name = school.get('Tên trường', 'N/A')
+            #         admin_email = school.get('Admin', 'N/A')
+            #         print(f"   {i}. {school_name} (Admin: {admin_email})")
                 
-                try:
-                    choice = get_user_input(f"Chọn trường để xử lý (1-{len(school_data)})", required=True)
-                    choice_idx = int(choice) - 1
-                    if 0 <= choice_idx < len(school_data):
-                        selected_school = school_data[choice_idx]
-                    else:
-                        print_status("Lựa chọn không hợp lệ", "error")
-                        return
-                except (ValueError, TypeError):
-                    print_status("Lựa chọn không hợp lệ", "error")
-                    return
+            #     try:
+            #         choice = get_user_input(f"Chọn trường để xử lý (1-{len(school_data)})", required=True)
+            #         choice_idx = int(choice) - 1
+            #         if 0 <= choice_idx < len(school_data):
+            #             selected_school = school_data[choice_idx]
+            #         else:
+            #             print_status("Lựa chọn không hợp lệ", "error")
+            #             return
+            #     except (ValueError, TypeError):
+            #         print_status("Lựa chọn không hợp lệ", "error")
+            #         return
             
             # Lấy thông tin trường
-            school_name = selected_school.get('Tên trường', 'N/A')
-            admin_email = selected_school.get('Admin', '')
-            password = selected_school.get('Mật khẩu', '')
-            drive_link = selected_school.get('Link driver dữ liệu', 'N/A')
+            school_name = selected_school_data.get('Tên trường', 'N/A')
+            admin_email = selected_school_data.get('Admin', '')
+            password = selected_school_data.get('Mật khẩu', '')
+            drive_link = selected_school_data.get('Link driver dữ liệu', 'N/A')
             
             workflow_results['school_info'] = {
                 'name': school_name,
@@ -988,37 +988,37 @@ class SchoolProcessApp:
             
             self._print_workflow_summary(workflow_results)
             
-            # Hỏi có muốn mở file Excel không nếu tạo thành công
-            if workflow_results['excel_converted'] and workflow_results['excel_file_path']:
-                action_options = ["Mở file Excel local"]
+            # # Hỏi có muốn mở file Excel không nếu tạo thành công
+            # if workflow_results['excel_converted'] and workflow_results['excel_file_path']:
+            #     action_options = ["Mở file Excel local"]
                 
-                if workflow_results['drive_uploaded'] and workflow_results['upload_results'].get('urls'):
-                    action_options.append("Mở Google Drive folder")
+            #     if workflow_results['drive_uploaded'] and workflow_results['upload_results'].get('urls'):
+            #         action_options.append("Mở Google Drive folder")
                 
-                if len(action_options) > 1:
-                    print(f"\n🎯 BẠN CÓ THỂ:")
-                    for i, option in enumerate(action_options, 1):
-                        print(f"   {i}. {option}")
+            #     if len(action_options) > 1:
+            #         print(f"\n🎯 BẠN CÓ THỂ:")
+            #         for i, option in enumerate(action_options, 1):
+            #             print(f"   {i}. {option}")
                     
-                    choice = get_user_input(f"Chọn hành động (1-{len(action_options)}, Enter = bỏ qua)")
+            #         choice = get_user_input(f"Chọn hành động (1-{len(action_options)}, Enter = bỏ qua)")
                     
-                    if choice == "1":
-                        try:
-                            os.startfile(workflow_results['excel_file_path'])
-                            print_status("Đã mở file Excel", "success")
-                        except Exception as e:
-                            print_status(f"Không thể mở file Excel: {e}", "warning")
-                    elif choice == "2" and len(action_options) > 1:
-                        drive_folder_url = drive_link
-                        print_status(f"🔗 Google Drive: {drive_folder_url}", "info")
-                        print("💡 Bạn có thể mở link trên trong trình duyệt")
-                else:
-                    if get_user_confirmation("Bạn có muốn mở file Excel đã tạo?"):
-                        try:
-                            os.startfile(workflow_results['excel_file_path'])
-                            print_status("Đã mở file Excel", "success")
-                        except Exception as e:
-                            print_status(f"Không thể mở file Excel: {e}", "warning")
+            #         if choice == "1":
+            #             try:
+            #                 os.startfile(workflow_results['excel_file_path'])
+            #                 print_status("Đã mở file Excel", "success")
+            #             except Exception as e:
+            #                 print_status(f"Không thể mở file Excel: {e}", "warning")
+            #         elif choice == "2" and len(action_options) > 1:
+            #             drive_folder_url = drive_link
+            #             print_status(f"🔗 Google Drive: {drive_folder_url}", "info")
+            #             print("💡 Bạn có thể mở link trên trong trình duyệt")
+            #     else:
+            #         if get_user_confirmation("Bạn có muốn mở file Excel đã tạo?"):
+            #             try:
+            #                 os.startfile(workflow_results['excel_file_path'])
+            #                 print_status("Đã mở file Excel", "success")
+            #             except Exception as e:
+            #                 print_status(f"Không thể mở file Excel: {e}", "warning")
             
             # Lưu dữ liệu vào file nếu chưa lưu (fallback)
             if not workflow_results['json_saved'] and (workflow_results['teachers_data'] or workflow_results['students_data']):
@@ -1031,7 +1031,6 @@ class SchoolProcessApp:
 
     def _execute_workflow_case_2(self, selected_school_data):
         """Case 2: Workflow với so sánh file import"""
-        print("selected_school_data:", selected_school_data)
         
         workflow_results = {
             'sheets_extraction': False,
@@ -1057,9 +1056,10 @@ class SchoolProcessApp:
             print_status("BƯỚC 1-4: Lấy dữ liệu cơ bản (giống Case 1)", "info")
             
             # Thực hiện các bước giống Case 1
-            basic_results = self._execute_basic_workflow_steps()
+            basic_results = self._execute_basic_workflow_steps(selected_school_data)
             if not basic_results:
                 print_status("❌ Lỗi trong các bước cơ bản", "error")
+                
                 return
             
             # Cập nhật workflow_results với dữ liệu cơ bản
@@ -1069,7 +1069,7 @@ class SchoolProcessApp:
                    (workflow_results['teachers_data'] or workflow_results['students_data'])):
                 print_status("❌ Không đủ dữ liệu cơ bản để tiếp tục", "error")
                 return
-            
+
             # Bước 5: Tải file import từ Google Drive
             print_status("BƯỚC 5: Tải file import từ Google Drive", "info")
             
@@ -1177,13 +1177,13 @@ class SchoolProcessApp:
             self._print_workflow_summary_case_2(workflow_results)
             
             # Hỏi có muốn mở file Excel không
-            if workflow_results['excel_converted'] and workflow_results['excel_file_path']:
-                if get_user_confirmation("Bạn có muốn mở file Excel đã tạo?"):
-                    try:
-                        os.startfile(workflow_results['excel_file_path'])
-                        print_status("Đã mở file Excel", "success")
-                    except Exception as e:
-                        print_status(f"Không thể mở file Excel: {e}", "warning")
+            # if workflow_results['excel_converted'] and workflow_results['excel_file_path']:
+            #     if get_user_confirmation("Bạn có muốn mở file Excel đã tạo?"):
+            #         try:
+            #             os.startfile(workflow_results['excel_file_path'])
+            #             print_status("Đã mở file Excel", "success")
+            #         except Exception as e:
+            #             print_status(f"Không thể mở file Excel: {e}", "warning")
             
         except ImportError as e:
             print_status(f"Module không tồn tại: {e}", "error")
@@ -1770,7 +1770,7 @@ class SchoolProcessApp:
                 
             return sheet_name.strip()
 
-    def _execute_basic_workflow_steps(self):
+    def _execute_basic_workflow_steps(self, selected_school):
         """Thực hiện các bước cơ bản của workflow (dùng chung cho cả 2 case)"""
         basic_results = {
             'sheets_extraction': False,
@@ -1784,49 +1784,49 @@ class SchoolProcessApp:
         }
         
         try:
-            # Bước 1: Trích xuất dữ liệu từ Google Sheets
-            print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
+            # # Bước 1: Trích xuất dữ liệu từ Google Sheets
+            # print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
             
-            extractor = GoogleSheetsExtractor()
+            # extractor = GoogleSheetsExtractor()
             
-            # Lấy tên sheet với logic fallback
-            sheet_name = self._get_sheet_name_with_fallback(extractor)
-            if not sheet_name:
-                print_status("❌ Không thể xác định tên sheet", "error")
-                return None
+            # # Lấy tên sheet với logic fallback
+            # sheet_name = self._get_sheet_name_with_fallback(extractor)
+            # if not sheet_name:
+            #     print_status("❌ Không thể xác định tên sheet", "error")
+            #     return None
             
-            print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
-            school_data = extractor.extract_school_data(sheet_name=sheet_name)
+            # print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
+            # school_data = extractor.extract_school_data(sheet_name=sheet_name)
             
-            if not school_data:
-                print_status("❌ Không thể trích xuất dữ liệu từ Google Sheets", "error")
+            if not selected_school:
+                print_status("❌ Không thể trích xuất dữ liệu", "error")
                 return None
             
             basic_results['sheets_extraction'] = True
-            print_status(f"✅ Đã trích xuất {len(school_data)} trường học", "success")
+            # print_status(f"✅ Đã trích xuất {len(school_data)} trường học", "success")
             
-            # Chọn trường để xử lý
-            if len(school_data) == 1:
-                selected_school = school_data[0]
-                print_status("Tự động chọn trường duy nhất", "info")
-            else:
-                print("\n📋 DANH SÁCH TRƯỜNG ĐÃ TRÍCH XUẤT:")
-                for i, school in enumerate(school_data, 1):
-                    school_name = school.get('Tên trường', 'N/A')
-                    admin_email = school.get('Admin', 'N/A')
-                    print(f"   {i}. {school_name} (Admin: {admin_email})")
+            # # Chọn trường để xử lý
+            # if len(school_data) == 1:
+            #     selected_school = school_data[0]
+            #     print_status("Tự động chọn trường duy nhất", "info")
+            # else:
+            #     print("\n📋 DANH SÁCH TRƯỜNG ĐÃ TRÍCH XUẤT:")
+            #     for i, school in enumerate(school_data, 1):
+            #         school_name = school.get('Tên trường', 'N/A')
+            #         admin_email = school.get('Admin', 'N/A')
+            #         print(f"   {i}. {school_name} (Admin: {admin_email})")
                 
-                try:
-                    choice = get_user_input(f"Chọn trường để xử lý (1-{len(school_data)})", required=True)
-                    choice_idx = int(choice) - 1
-                    if 0 <= choice_idx < len(school_data):
-                        selected_school = school_data[choice_idx]
-                    else:
-                        print_status("Lựa chọn không hợp lệ", "error")
-                        return None
-                except (ValueError, TypeError):
-                    print_status("Lựa chọn không hợp lệ", "error")
-                    return None
+            #     try:
+            #         choice = get_user_input(f"Chọn trường để xử lý (1-{len(school_data)})", required=True)
+            #         choice_idx = int(choice) - 1
+            #         if 0 <= choice_idx < len(school_data):
+            #             selected_school = school_data[choice_idx]
+            #         else:
+            #             print_status("Lựa chọn không hợp lệ", "error")
+            #             return None
+            #     except (ValueError, TypeError):
+            #         print_status("Lựa chọn không hợp lệ", "error")
+            #         return None
             
             # Lấy thông tin trường
             school_name = selected_school.get('Tên trường', 'N/A')

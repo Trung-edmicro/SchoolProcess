@@ -4,13 +4,16 @@ Modern Material Design với Tkinter
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+import sys
 import threading
 import json
 import os
+import traceback
+
+from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 from pathlib import Path
-import sys
+from app import SchoolProcessApp
 
 # Thêm project root vào Python path
 project_root = Path(__file__).parent.parent
@@ -20,7 +23,6 @@ from config.config_manager import get_config
 from config.onluyen_api import OnLuyenAPIClient
 from extractors import GoogleSheetsExtractor
 from converters import JSONToExcelTemplateConverter
-
 
 class SchoolProcessMainWindow:
     """Main Window cho School Process Application"""
@@ -609,7 +611,7 @@ class SchoolProcessMainWindow:
                                  "Vui lòng chọn một row (trường học) trong Google Sheets để xử lý.\n\n" +
                                  "Click vào số thứ tự hàng bên trái để chọn row.")
             return
-            
+
         # Hiển thị thông tin row được chọn
         row_info = self.sheets_viewer.get_selected_row_info()
         self.log_message(f"Bắt đầu Workflow Case 1: Toàn bộ dữ liệu", "header")
@@ -658,7 +660,6 @@ class SchoolProcessMainWindow:
             self.update_progress_safe(10, "Khởi tạo...")
             
             # Import and execute workflow
-            from app import SchoolProcessApp
             console_app = SchoolProcessApp()
             
             self.update_progress_safe(20, "Bắt đầu xử lý...")
@@ -671,7 +672,6 @@ class SchoolProcessMainWindow:
             
         except Exception as e:
             self.log_message_safe(f"Lỗi trong workflow Case 1: {str(e)}", "error")
-            import traceback
             traceback.print_exc()
         finally:
             self.is_processing = False
@@ -687,7 +687,6 @@ class SchoolProcessMainWindow:
             self.update_progress_safe(10, "Khởi tạo...")
             
             # Import and execute workflow
-            from app import SchoolProcessApp
             console_app = SchoolProcessApp()
             
             self.update_progress_safe(20, "Bắt đầu xử lý...")
@@ -700,7 +699,6 @@ class SchoolProcessMainWindow:
             
         except Exception as e:
             self.log_message_safe(f"Lỗi trong workflow Case 2: {str(e)}", "error")
-            import traceback
             traceback.print_exc()
         finally:
             self.is_processing = False
@@ -842,7 +840,7 @@ class SchoolProcessMainWindow:
             self.is_processing = False
             self.update_progress(0, "Đã dừng")
             self.log_message("Xử lý đã bị dừng bởi người dùng", "warning")
-            
+
     def test_onluyen_connection(self):
         """Test kết nối OnLuyen API"""
         self.log_message("Đang test kết nối OnLuyen API...", "info")
@@ -864,7 +862,7 @@ class SchoolProcessMainWindow:
             self.log_message("Kết nối Google Sheets thành công", "success")
         except Exception as e:
             self.log_message(f"Lỗi kết nối Google Sheets: {str(e)}", "error")
-            
+                    
     def browse_directory(self, var):
         """Browse và chọn thư mục"""
         directory = filedialog.askdirectory(initialdir=var.get())
