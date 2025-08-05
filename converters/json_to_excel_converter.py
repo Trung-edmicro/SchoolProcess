@@ -63,20 +63,24 @@ class JSONToExcelTemplateConverter:
             
             print(f"✅ Đã load JSON data từ: {self.json_file_path}")
             
-            # Extract school info từ cấu trúc mới (có thể có metadata hoặc school_info trực tiếp)
-            if 'metadata' in self.json_data:
-                # Cấu trúc cũ với metadata
+            
+            # Extract school info từ cấu trúc unified workflow JSON
+            school_info = {}
+            admin_password = '123456'  # default
+            
+            if 'school_info' in self.json_data:
+                # Cấu trúc unified workflow: school_info ở cấp gốc
+                school_info = self.json_data.get('school_info', {})
+                admin_password = school_info.get('admin_password', school_info.get('password', '123456'))
+            elif 'metadata' in self.json_data:
+                # Cấu trúc cũ: school_info trong metadata
                 metadata = self.json_data.get('metadata', {})
                 school_info = metadata.get('school_info', {})
-                self.admin_password = metadata.get('admin_password', '123456')
-            else:
-                # Cấu trúc mới với school_info trực tiếp
-                school_info = self.json_data.get('school_info', {})
-                # Sửa: password được lưu trong school_info.password, không phải admin_password
-                self.admin_password = school_info.get('password', '123456')
+                admin_password = metadata.get('admin_password', '123456')
             
             self.school_name = school_info.get('name', 'Unknown School')
-            self.admin_email = school_info.get('admin', '')
+            self.admin_email = school_info.get('admin_email', school_info.get('admin', ''))
+            self.admin_password = admin_password
             
             print(f"📋 Tên trường: {self.school_name}")
             print(f"📧 Admin email: {self.admin_email}")
@@ -163,6 +167,13 @@ class JSONToExcelTemplateConverter:
                 # Format workflow thường: {'data': [...]}
                 students_data = students_raw.get('data', [])
                 print(f"   📋 Phát hiện format workflow: {len(students_data)} học sinh")
+                
+                # Kiểm tra flag system_has_students
+                system_has_students = students_raw.get('system_has_students', True)
+                if not system_has_students:
+                    print("   ⚠️ Hệ thống không có học sinh - Đây là trường hợp hợp lệ")
+                    return True  # Trả về True vì đây là trường hợp hợp lệ
+                    
             elif isinstance(students_raw, list):
                 # Format filtered: [...] trực tiếp
                 students_data = students_raw
@@ -173,6 +184,10 @@ class JSONToExcelTemplateConverter:
             
             if not students_data:
                 print("   ⚠️ Không có dữ liệu học sinh")
+                # Kiểm tra xem đây có phải là trường hợp hệ thống không có học sinh không
+                if isinstance(students_raw, dict) and students_raw.get('total_count', 0) == 0:
+                    print("   ✅ Hệ thống không có học sinh - Đây là trường hợp hợp lệ")
+                    return True
                 return False
             
             students_list = []
@@ -662,9 +677,38 @@ class JSONToExcelTemplateConverter:
                 
             if not self.fill_teachers_sheet(workbook):
                 return None
+            
+            # Kiểm tra có nên tạo sheet học sinh hay không
+            should_create_students_sheet = True
+            
+            # Kiểm tra từ JSON data
+            students_data = self.json_data.get('students', {})
+            if isinstance(students_data, dict):
+                # Kiểm tra flag system_has_students
+                system_has_students = students_data.get('system_has_students', True)
+                if not system_has_students:
+                    should_create_students_sheet = False
+                    print("   ⚠️ Bỏ qua sheet HOC-SINH vì hệ thống không có học sinh")
                 
-            if not self.fill_students_sheet(workbook):
-                return None
+                # Kiểm tra total_count
+                elif students_data.get('total_count', 0) == 0:
+                    should_create_students_sheet = False
+                    print("   ⚠️ Bỏ qua sheet HOC-SINH vì total_count = 0")
+            
+            # Kiểm tra students_df
+            if should_create_students_sheet and (self.students_df is None or self.students_df.empty):
+                should_create_students_sheet = False
+                print("   ⚠️ Bỏ qua sheet HOC-SINH vì không có dữ liệu students")
+            
+            # Tạo sheet học sinh nếu cần
+            if should_create_students_sheet:
+                if not self.fill_students_sheet(workbook):
+                    print("   ⚠️ Lỗi khi tạo sheet HOC-SINH nhưng vẫn tiếp tục")
+            else:
+                # Xóa sheet HOC-SINH nếu có trong template
+                if 'HOC-SINH' in workbook.sheetnames:
+                    workbook.remove(workbook['HOC-SINH'])
+                    print("   ✅ Đã xóa sheet HOC-SINH khỏi file Excel")
             
             # Save workbook
             workbook.save(output_path)
@@ -687,13 +731,34 @@ class JSONToExcelTemplateConverter:
             return None
         
         # Extract data
-        if not self.extract_teachers_data():
-            return None
-            
-        if not self.extract_students_data():
+        teachers_extracted = self.extract_teachers_data()
+        students_extracted = self.extract_students_data()
+        
+        # Kiểm tra nếu không có giáo viên thì không thể tiếp tục
+        if not teachers_extracted:
+            print("❌ Không có dữ liệu giáo viên - không thể tạo file Excel")
             return None
         
-        # Create Excel output
+        # Kiểm tra xem hệ thống có học sinh hay không
+        students_data = self.json_data.get('students', {})
+        system_has_students = True
+        
+        if isinstance(students_data, dict):
+            # Kiểm tra flag từ workflow
+            system_has_students = students_data.get('system_has_students', True)
+            # Hoặc kiểm tra total_count
+            if students_data.get('total_count', 0) == 0:
+                system_has_students = False
+        
+        # Thông báo về trạng thái học sinh
+        if not system_has_students:
+            print("⚠️ Hệ thống không có học sinh - Chỉ tạo sheet GIAO-VIEN")
+        elif not students_extracted:
+            print("⚠️ Không trích xuất được dữ liệu học sinh - Chỉ tạo sheet GIAO-VIEN")
+        else:
+            print("✅ Sẽ tạo cả sheet GIAO-VIEN và HOC-SINH")
+        
+        # Create Excel output (sẽ tự động kiểm tra có students hay không)
         result_path = self.create_excel_output(output_path)
         
         if result_path:
@@ -701,7 +766,12 @@ class JSONToExcelTemplateConverter:
             print("🎊 CHUYỂN ĐỔI HOÀN TẤT!")
             print(f"📄 File Excel đầu ra: {result_path}")
             print(f"👥 Số giáo viên: {len(self.teachers_df) if self.teachers_df is not None else 0}")
-            print(f"🎓 Số học sinh: {len(self.students_df) if self.students_df is not None else 0}")
+            
+            if system_has_students and students_extracted:
+                print(f"🎓 Số học sinh: {len(self.students_df) if self.students_df is not None else 0}")
+            else:
+                print(f"🎓 Số học sinh: 0 (hệ thống không có học sinh)")
+                
             print(f"🏫 Trường: {self.school_name}")
         
         return result_path

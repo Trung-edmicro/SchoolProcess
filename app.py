@@ -671,7 +671,103 @@ class SchoolProcessApp:
         print()
         self._execute_workflow_case_2()
 
-    def _execute_workflow_case_1(self, selected_school_data):
+    def _get_authenticated_client(self, admin_email=None, password=None, ui_mode=False) -> tuple:
+        """
+        Lấy OnLuyenAPIClient đã được xác thực
+        - Ưu tiên sử dụng access_token từ file login nếu email khớp với trường hiện tại
+        - Nếu token không thuộc trường hiện tại hoặc hết hạn, thực hiện login lại
+        
+        Args:
+            admin_email (str, optional): Email admin để login nếu cần
+            password (str, optional): Password để login nếu cần
+            ui_mode (bool): Có phải chế độ UI không
+            
+        Returns:
+            tuple: (OnLuyenAPIClient, bool, dict) - (client, success, login_result)
+        """
+        client = OnLuyenAPIClient()
+        
+        # Bước 1: Thử load token từ file login (từ chức năng chuyển năm học)
+        print_status("🔍 Kiểm tra access token từ file login...", "info")
+        
+        if client.load_token_from_login_file():
+            print_status("✅ Đã load access token từ file login", "success")
+            
+            # Kiểm tra email trong token có khớp với trường hiện tại không
+            if admin_email:
+                token_info = client.get_current_school_year_info()
+                if token_info.get('success') and token_info.get('email'):
+                    token_email = token_info.get('email', '').lower()
+                    current_email = admin_email.lower()
+                    
+                    if token_email != current_email:
+                        print_status(f"⚠️ Token thuộc về email khác: {token_email} != {current_email}", "warning")
+                        print_status("🔄 Sẽ login lại với thông tin trường hiện tại", "info")
+                    else:
+                        print_status(f"✅ Token khớp với email trường hiện tại: {current_email}", "success")
+                        
+                        # Test token bằng cách gọi API nhẹ
+                        print_status("🧪 Kiểm tra tính hợp lệ của token...", "info")
+                        test_result = client.get_teachers(page_size=1)
+                        
+                        if test_result['success']:
+                            print_status("✅ Access token hợp lệ, sử dụng token hiện có", "success")
+                            
+                            # Hiển thị thông tin năm học hiện tại
+                            client.print_current_school_year_info()
+                            
+                            return client, True, {"success": True, "data": {"source": "login_file"}}
+                        else:
+                            print_status("⚠️ Access token không hợp lệ hoặc đã hết hạn", "warning")
+                else:
+                    print_status("⚠️ Không thể lấy thông tin email từ token", "warning")
+            else:
+                # Nếu không có admin_email để so sánh, vẫn test token như cũ
+                print_status("🧪 Kiểm tra tính hợp lệ của token...", "info")
+                test_result = client.get_teachers(page_size=1)
+                
+                if test_result['success']:
+                    print_status("✅ Access token hợp lệ, sử dụng token hiện có", "success")
+                    client.print_current_school_year_info()
+                    return client, True, {"success": True, "data": {"source": "login_file"}}
+                else:
+                    print_status("⚠️ Access token không hợp lệ hoặc đã hết hạn", "warning")
+        else:
+            print_status("⚠️ Không tìm thấy access token trong file login", "warning")
+        
+        # Bước 2: Nếu không có token hợp lệ, thực hiện login
+        if not admin_email or not password:
+            print_status("❌ Cần thông tin đăng nhập để tạo token mới", "error")
+            return client, False, {"success": False, "error": "Thiếu thông tin đăng nhập"}
+        
+        print_status("🔐 Thực hiện login để lấy token mới...", "info")
+        print_status(f"Đang login với Admin: {admin_email}", "info")
+        
+        login_result = client.login(admin_email, password)
+        
+        if not login_result['success']:
+            print_status(f"❌ Login thất bại: {login_result.get('error', 'Unknown error')}", "error")
+            return client, False, login_result
+        
+        # Kiểm tra tài khoản trùng khớp
+        response_data = login_result.get('data', {})
+        response_email = response_data.get('account', '').lower().strip()
+        expected_email = admin_email.lower().strip()
+        
+        if response_email != expected_email:
+            print_status("❌ Tài khoản đăng nhập không trùng khớp!", "error")
+            print(f"   Expected: {expected_email}")
+            print(f"   Got: {response_email}")
+            return client, False, {"success": False, "error": "Tài khoản không trùng khớp"}
+        
+        print_status("✅ Login thành công và tài khoản trùng khớp", "success")
+        
+        # Hiển thị thông tin năm học sau khi login
+        client.print_current_school_year_info()
+        
+        return client, True, login_result
+
+    def _execute_workflow_case_1(self, selected_school_data, ui_mode=False):
         """Execute Case 1 workflow - toàn bộ dữ liệu"""
 
         workflow_results = {
@@ -765,34 +861,21 @@ class SchoolProcessApp:
                 print_status("❌ Thiếu thông tin Admin email hoặc Mật khẩu", "error")
                 return
             
-            # Bước 2: Login vào OnLuyen API
-            print_status("BƯỚC 2: Thực hiện login OnLuyen API", "info")
+            # Bước 2: Lấy client đã xác thực (ưu tiên token từ file, nếu không có thì login)
+            print_status("BƯỚC 2: Xác thực OnLuyen API", "info")
             
-            client = OnLuyenAPIClient()
-            print_status(f"Đang login với Admin: {admin_email}", "info")
+            client, auth_success, login_result = self._get_authenticated_client(admin_email, password, ui_mode)
             
-            result = client.login(admin_email, password)
-            
-            if not result['success']:
-                print_status(f"❌ Login thất bại: {result.get('error', 'Unknown error')}", "error")
-                return
-            
-            # Kiểm tra tài khoản trùng khớp
-            response_data = result.get('data', {})
-            response_email = response_data.get('account', '').lower().strip()
-            expected_email = admin_email.lower().strip()
-            
-            if response_email != expected_email:
-                print_status("❌ Tài khoản đăng nhập không trùng khớp!", "error")
-                print(f"   Expected: {expected_email}")
-                print(f"   Got: {response_email}")
+            if not auth_success:
+                print_status(f"❌ Xác thực thất bại: {login_result.get('error', 'Unknown error')}", "error")
                 return
             
             workflow_results['api_login'] = True
-            print_status("✅ Login thành công và tài khoản trùng khớp", "success")
+            print_status("✅ OnLuyen API xác thực thành công", "success")
             
-            # Lưu thông tin login
-            self._save_successful_login_info(school_name, admin_email, result, drive_link, password)
+            # Lưu thông tin login nếu có login mới
+            if login_result.get('data', {}).get('source') != 'login_file':
+                self._save_successful_login_info(school_name, admin_email, login_result, drive_link, password)
             
             # Bước 3: Lấy danh sách Giáo viên
             print_status("BƯỚC 3: Lấy danh sách Giáo viên", "info")
@@ -818,10 +901,10 @@ class SchoolProcessApp:
                     ht_hp_info = self._extract_ht_hp_info(teachers_data)
                     workflow_results['ht_hp_info'] = ht_hp_info
                     
-                    # Lưu thông tin HT/HP vào file riêng
-                    ht_hp_file = self._save_ht_hp_info(ht_hp_info, school_name)
-                    if ht_hp_file:
-                        workflow_results['ht_hp_file'] = ht_hp_file
+                    # HT/HP info được lưu trong unified workflow file - không cần file riêng
+                    # ht_hp_file = self._save_ht_hp_info(ht_hp_info, school_name)
+                    # if ht_hp_file:
+                    #     workflow_results['ht_hp_file'] = ht_hp_file
                         
                 else:
                     print_status("⚠️ Định dạng dữ liệu giáo viên không đúng", "warning")
@@ -831,31 +914,80 @@ class SchoolProcessApp:
             # Bước 4: Lấy danh sách Học sinh
             print_status("BƯỚC 4: Lấy danh sách Học sinh", "info")
             
-            students_result = client.get_students(page_index=1, page_size=5000)
+            # Gọi API lần đầu để biết tổng số học sinh
+            students_result = client.get_students(page_index=1, page_size=1000)
             
             if students_result['success'] and students_result.get('data'):
                 students_data = students_result['data']
                 if isinstance(students_data, dict) and 'data' in students_data:
-                    students_list = students_data['data']
-                    students_count = students_data.get('totalCount', len(students_list))
+                    all_students_list = []
+                    students_count = students_data.get('totalCount', 0)
                     
-                    workflow_results['students_data'] = True
-                    workflow_results['data_summary']['students'] = {
-                        'total': students_count,
-                        'retrieved': len(students_list)
-                    }
+                    print_status(f"📊 Tổng số học sinh cần lấy: {students_count}", "info")
                     
-                    print_status(f"✅ Lấy danh sách học sinh thành công: {len(students_list)}/{students_count}", "success")
+                    if students_count > 0:
+                        # Lấy dữ liệu từ lần gọi đầu tiên
+                        first_batch = students_data['data']
+                        all_students_list.extend(first_batch)
+                        print_status(f"   ✅ Lấy được batch 1: {len(first_batch)} học sinh", "info")
+                        
+                        # Tính số lần gọi API cần thiết
+                        page_size = 1000  # Sử dụng page size nhỏ hơn để đảm bảo ổn định
+                        total_pages = (students_count + page_size - 1) // page_size
+                        
+                        # Gọi API cho các trang còn lại
+                        for page_index in range(2, total_pages + 1):
+                            print_status(f"   🔄 Đang lấy batch {page_index}/{total_pages}...", "info")
+                            
+                            batch_result = client.get_students(page_index=page_index, page_size=page_size)
+                            
+                            if batch_result['success'] and batch_result.get('data'):
+                                batch_data = batch_result['data']
+                                if isinstance(batch_data, dict) and 'data' in batch_data:
+                                    batch_students = batch_data['data']
+                                    all_students_list.extend(batch_students)
+                                    print_status(f"   ✅ Lấy được batch {page_index}: {len(batch_students)} học sinh", "info")
+                                else:
+                                    print_status(f"   ⚠️ Batch {page_index}: Định dạng dữ liệu không đúng", "warning")
+                            else:
+                                print_status(f"   ❌ Batch {page_index}: {batch_result.get('error', 'Lỗi không xác định')}", "error")
+                        
+                        # Cập nhật students_result với tất cả dữ liệu
+                        students_result['data'] = {
+                            'data': all_students_list,
+                            'totalCount': students_count
+                        }
+                        
+                        workflow_results['students_data'] = True
+                        workflow_results['data_summary']['students'] = {
+                            'total': students_count,
+                            'retrieved': len(all_students_list)
+                        }
+                        
+                        print_status(f"✅ Hoàn thành lấy danh sách học sinh: {len(all_students_list)}/{students_count}", "success")
+                    else:
+                        workflow_results['students_data'] = False
+                        workflow_results['data_summary']['students'] = {
+                            'total': 0,
+                            'retrieved': 0
+                        }
+                        print_status("⚠️ Không có học sinh nào trong hệ thống", "warning")
                 else:
                     print_status("⚠️ Định dạng dữ liệu học sinh không đúng", "warning")
             else:
                 print_status(f"❌ Lỗi lấy danh sách học sinh: {students_result.get('error')}", "error")
             
-            # Bước 5: Lưu dữ liệu workflow JSON
-            print_status("BƯỚC 5: Lưu dữ liệu workflow JSON", "info")
+            # Bước 5: Lưu dữ liệu workflow JSON tổng hợp
+            print_status("BƯỚC 5: Lưu dữ liệu workflow JSON tổng hợp", "info")
             
             if workflow_results['teachers_data'] or workflow_results['students_data']:
-                json_file_path = self._save_workflow_data(workflow_results, teachers_result, students_result, password)
+                json_file_path = self._save_unified_workflow_data(
+                    workflow_results=workflow_results,
+                    teachers_result=teachers_result,
+                    students_result=students_result,
+                    admin_password=password,
+                    workflow_type="case_1"
+                )
                 if json_file_path:
                     workflow_results['json_saved'] = True
                     workflow_results['json_file_path'] = json_file_path
@@ -893,8 +1025,11 @@ class SchoolProcessApp:
                 print(f"   📄 Tên file: {excel_file_name}")
                 print(f"   📏 Kích thước: {excel_file_size:.1f} MB")
                 
-                # Hỏi người dùng có muốn upload không
-                if get_user_confirmation("\n📤 Bạn có muốn upload file Excel lên Google Drive?"):
+                # Trong UI mode, không upload tự động - để user quyết định trong dialog
+                # Trong console mode, hỏi người dùng có muốn upload không
+                should_upload = ui_mode or get_user_confirmation("\n📤 Bạn có muốn upload file Excel lên Google Drive?")
+                
+                if should_upload and not ui_mode:  # Chỉ upload ngay khi ở console mode
                     # Validate Drive link
                     is_valid_drive_link = False
                     folder_id = None
@@ -950,8 +1085,8 @@ class SchoolProcessApp:
                         print("   3️⃣  Nhập link Drive folder thực tế")
                         print("   4️⃣  Format: https://drive.google.com/drive/folders/[FOLDER_ID]")
                         
-                        # Hỏi có muốn nhập Drive link thủ công không
-                        if get_user_confirmation("\nBạn có muốn nhập Drive link thủ công để upload?"):
+                        # Trong UI mode, bỏ qua nhập thủ công - để user quyết định trong dialog
+                        if not ui_mode and get_user_confirmation("\nBạn có muốn nhập Drive link thủ công để upload?"):
                             manual_drive_link = get_user_input("Nhập Google Drive folder link:")
                             if manual_drive_link and 'drive.google.com' in manual_drive_link:
                                 folder_id_manual = self._extract_drive_folder_id(manual_drive_link)
@@ -978,7 +1113,10 @@ class SchoolProcessApp:
                                 print_status("❌ Drive link thủ công không đúng format", "error")
                 else:
                     workflow_results['drive_uploaded'] = False
-                    print_status("ℹ️ Bỏ qua upload file Excel", "info")
+                    if ui_mode:
+                        print_status("ℹ️ Upload sẽ được thực hiện từ dialog", "info")
+                    else:
+                        print_status("ℹ️ Bỏ qua upload file Excel", "info")
             else:
                 workflow_results['drive_uploaded'] = False
                 print_status("⚠️ Không có file Excel để upload", "warning")
@@ -1022,14 +1160,24 @@ class SchoolProcessApp:
             
             # Lưu dữ liệu vào file nếu chưa lưu (fallback)
             if not workflow_results['json_saved'] and (workflow_results['teachers_data'] or workflow_results['students_data']):
-                self._save_workflow_data(workflow_results, teachers_result, students_result, password)
+                self._save_unified_workflow_data(
+                    workflow_results=workflow_results,
+                    teachers_result=teachers_result,
+                    students_result=students_result,
+                    admin_password=password,
+                    workflow_type="case_1"
+                )
+            
+            return workflow_results
             
         except ImportError as e:
             print_status(f"Module không tồn tại: {e}", "error")
+            return None
         except Exception as e:
             print_status(f"Lỗi trong quy trình tích hợp: {e}", "error")
+            return None
 
-    def _execute_workflow_case_2(self, selected_school_data):
+    def _execute_workflow_case_2(self, selected_school_data, ui_mode=False):
         """Case 2: Workflow với so sánh file import"""
         
         workflow_results = {
@@ -1076,7 +1224,7 @@ class SchoolProcessApp:
             school_name = workflow_results['school_info'].get('name', '')
             drive_link = workflow_results['school_info'].get('drive_link', '')
             
-            import_file_path = self._download_import_file(school_name, drive_link)
+            import_file_path = self._download_import_file(school_name, drive_link, ui_mode)
             
             if import_file_path:
                 workflow_results['import_file_downloaded'] = True
@@ -1087,11 +1235,6 @@ class SchoolProcessApp:
                 print_status(f"✅ Đã tải file import: {os.path.basename(import_file_path)}", "success")
             else:
                 print_status("❌ Không thể tải file import", "error")
-                print("💡 HƯỚNG DẪN SETUP FILE IMPORT:")
-                print("   1️⃣  File phải có tên bắt đầu bằng 'import_' và kết thúc bằng '.xlsx'")
-                print("   2️⃣  Ví dụ: import_data.xlsx, import_truong_abc.xlsx")
-                print("   3️⃣  File phải nằm trong Drive folder từ 'Link driver dữ liệu'")
-                print("   4️⃣  File phải chứa danh sách email/username cần so sánh")
                 return
             
             # Bước 6: So sánh và lọc dữ liệu
@@ -1114,17 +1257,43 @@ class SchoolProcessApp:
                 print(f"   👨‍🏫 Giáo viên khớp: {len(teachers_filtered)}")
                 print(f"   👨‍🎓 Học sinh khớp: {len(students_filtered)}")
                 
+                # Kiểm tra xem có học sinh nào trong hệ thống không
+                students_result = workflow_results.get('students_result', {})
+                has_students_in_system = False
+                if students_result and students_result.get('success') and students_result.get('data'):
+                    students_data = students_result['data']
+                    if isinstance(students_data, dict):
+                        total_students = students_data.get('totalCount', 0)
+                        has_students_in_system = total_students > 0
+                    elif isinstance(students_data, list):
+                        has_students_in_system = len(students_data) > 0
+                
+                if not has_students_in_system:
+                    print_status("⚠️ Hệ thống không có học sinh nào - File Excel sẽ chỉ có sheet GIAO-VIEN", "warning")
+                    workflow_results['no_students_in_system'] = True
+                else:
+                    workflow_results['no_students_in_system'] = False
+                
                 # Cập nhật data_summary với dữ liệu đã lọc
                 workflow_results['data_summary']['teachers_filtered'] = len(teachers_filtered)
                 workflow_results['data_summary']['students_filtered'] = len(students_filtered)
+                workflow_results['data_summary']['has_students_in_system'] = has_students_in_system
             else:
                 print_status("❌ Lỗi so sánh dữ liệu", "error")
                 return
             
-            # Bước 7: Lưu dữ liệu đã lọc vào JSON
-            print_status("BƯỚC 7: Lưu dữ liệu đã lọc workflow JSON", "info")
+
+            # Bước 7: Lưu dữ liệu đã lọc vào JSON tổng hợp
+            print_status("BƯỚC 7: Lưu dữ liệu đã lọc workflow JSON tổng hợp", "info")
             
-            json_file_path = self._save_filtered_workflow_data(workflow_results, comparison_results)
+            json_file_path = self._save_unified_workflow_data(
+                workflow_results=workflow_results,
+                teachers_result=basic_results.get('teachers_result'),
+                students_result=basic_results.get('students_result'),
+                comparison_results=comparison_results,
+                admin_password=selected_school_data.get('Mật khẩu'),
+                workflow_type="case_2"
+            )
             if json_file_path:
                 workflow_results['json_saved'] = True
                 workflow_results['json_file_path'] = json_file_path
@@ -1152,7 +1321,11 @@ class SchoolProcessApp:
             excel_file_exists = workflow_results['excel_converted'] and workflow_results['excel_file_path'] and os.path.exists(workflow_results['excel_file_path'])
             
             if excel_file_exists:
-                if get_user_confirmation("\n📤 Bạn có muốn upload file Excel lên Google Drive?"):
+                # Trong UI mode, không upload tự động - để user quyết định trong dialog
+                # Trong console mode, hỏi người dùng có muốn upload không
+                should_upload = ui_mode or get_user_confirmation("\n📤 Bạn có muốn upload file Excel lên Google Drive?")
+                
+                if should_upload and not ui_mode:  # Chỉ upload ngay khi ở console mode
                     # Upload chỉ file Excel
                     upload_results = self._upload_files_to_drive_oauth([workflow_results['excel_file_path']], drive_link)
                     
@@ -1166,7 +1339,10 @@ class SchoolProcessApp:
                         print_status("❌ Upload file Excel thất bại", "error")
                 else:
                     workflow_results['drive_uploaded'] = False
-                    print_status("ℹ️ Bỏ qua upload file Excel", "info")
+                    if ui_mode:
+                        print_status("ℹ️ Upload sẽ được thực hiện từ dialog", "info")
+                    else:
+                        print_status("ℹ️ Bỏ qua upload file Excel", "info")
             else:
                 workflow_results['drive_uploaded'] = False
                 print_status("⚠️ Không có file Excel để upload", "warning")
@@ -1185,10 +1361,14 @@ class SchoolProcessApp:
             #         except Exception as e:
             #             print_status(f"Không thể mở file Excel: {e}", "warning")
             
+            return workflow_results
+            
         except ImportError as e:
             print_status(f"Module không tồn tại: {e}", "error")
+            return None
         except Exception as e:
             print_status(f"Lỗi trong quy trình Case 2: {e}", "error")
+            return None
 
     def _convert_json_to_excel(self, json_file_path):
         """Chuyển đổi file JSON workflow sang Excel"""
@@ -1270,6 +1450,59 @@ class SchoolProcessApp:
             
         except Exception as e:
             return None
+    
+    def upload_to_drive(self, json_file_path, excel_file_path, drive_link, school_name):
+        """
+        Upload file Excel to Google Drive - Wrapper method cho UI
+        
+        Args:
+            json_file_path (str): Đường dẫn file JSON (không sử dụng, chỉ để compatibility)
+            excel_file_path (str): Đường dẫn file Excel
+            drive_link (str): Link Google Drive folder
+            school_name (str): Tên trường
+            
+        Returns:
+            dict: Kết quả upload {'success': bool, 'error': str}
+        """
+        try:
+            # Chỉ upload file Excel, không upload file JSON
+            files_to_upload = []
+            
+            if excel_file_path and os.path.exists(excel_file_path):
+                files_to_upload.append(excel_file_path)
+            
+            # Không thêm JSON file vào danh sách upload
+            # if json_file_path and os.path.exists(json_file_path):
+            #     files_to_upload.append(json_file_path)
+            
+            if not files_to_upload:
+                return {'success': False, 'error': 'Không có file Excel để upload'}
+            
+            # Validate Drive link
+            if not drive_link or drive_link == 'N/A' or 'drive.google.com' not in drive_link:
+                return {'success': False, 'error': 'Drive link không hợp lệ'}
+            
+            folder_id = self._extract_drive_folder_id(drive_link)
+            if not folder_id:
+                return {'success': False, 'error': 'Không thể extract folder ID từ Drive link'}
+            
+            print_status(f"📤 Đang upload file Excel cho trường: {school_name}", "info")
+            
+            # Thực hiện upload
+            upload_results = self._upload_files_to_drive_oauth(files_to_upload, drive_link)
+            
+            if upload_results.get('success', 0) > 0:
+                return {
+                    'success': True,
+                    'uploaded_count': upload_results.get('success', 0),
+                    'urls': upload_results.get('urls', [])
+                }
+            else:
+                errors = upload_results.get('errors', ['Unknown error'])
+                return {'success': False, 'error': '; '.join(errors)}
+                
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
 
     def _upload_files_to_drive_oauth(self, file_paths, drive_link):
         """
@@ -1546,40 +1779,204 @@ class SchoolProcessApp:
         except Exception as e:
             print_status(f"⚠️ Lỗi lưu dữ liệu học sinh: {e}", "warning")
 
-    def _save_workflow_data(self, workflow_results, teachers_result, students_result, admin_password=None):
-        """Lưu dữ liệu workflow vào file và trả về đường dẫn file"""
-        try:
+    def _save_unified_workflow_data(self, workflow_results, teachers_result=None, students_result=None, comparison_results=None, admin_password=None, workflow_type="case_1"):
+        """
+        Lưu tất cả dữ liệu workflow vào 1 file JSON tổng hợp
+        
+        Args:
+            workflow_results: Kết quả workflow tổng quát
+            teachers_result: Kết quả API giáo viên (nếu có)
+            students_result: Kết quả API học sinh (nếu có) 
+            comparison_results: Kết quả so sánh case 2 (nếu có)
+            admin_password: Mật khẩu admin (nếu có)
+            workflow_type: "case_1" hoặc "case_2"
             
+        Returns:
+            str: Đường dẫn file JSON đã lưu
+        """
+        try:
             school_name = workflow_results['school_info'].get('name', 'Unknown')
             safe_school_name = "".join(c for c in school_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
-            # Tạo cấu trúc JSON đơn giản, không trùng lặp
-            workflow_data = {
+            # Tạo cấu trúc JSON thống nhất
+            unified_data = {
+                # === METADATA ===
+                'metadata': {
+                    'workflow_type': workflow_type,
+                    'timestamp': timestamp,
+                    'processed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'version': '1.0'
+                },
+                
+                # === SCHOOL INFO ===
                 'school_info': {
                     'name': workflow_results['school_info'].get('name'),
-                    'admin': workflow_results['school_info'].get('admin'),
+                    'admin_email': workflow_results['school_info'].get('admin'),
                     'drive_link': workflow_results['school_info'].get('drive_link'),
-                    'admin_password': admin_password
+                    'admin_password': admin_password  # Có thể None
                 },
+                
+                # === WORKFLOW STATUS ===
+                'workflow_status': {
+                    'sheets_extraction': workflow_results.get('sheets_extraction', False),
+                    'api_login': workflow_results.get('api_login', False),
+                    'teachers_data': workflow_results.get('teachers_data', False),
+                    'students_data': workflow_results.get('students_data', False),
+                    'import_file_downloaded': workflow_results.get('import_file_downloaded', False),
+                    'data_comparison': workflow_results.get('data_comparison', False),
+                    'json_saved': True,  # Always true khi method này chạy
+                    'excel_converted': workflow_results.get('excel_converted', False),
+                    'drive_uploaded': workflow_results.get('drive_uploaded', False)
+                },
+                
+                # === DATA SUMMARY ===
                 'data_summary': workflow_results.get('data_summary', {}),
-                'ht_hp_info': workflow_results.get('ht_hp_info', {}),  # Thêm thông tin HT/HP
-                'teachers': teachers_result.get('data') if teachers_result.get('success') else None,
-                'students': students_result.get('data') if students_result.get('success') else None
+                
+                # === HT/HP INFO (nếu có) ===
+                'ht_hp_info': workflow_results.get('ht_hp_info', {}),
+                
+                # === TEACHERS DATA ===
+                'teachers': self._extract_teachers_data_for_unified(teachers_result),
+                
+                # === STUDENTS DATA ===
+                'students': self._extract_students_data_for_unified(students_result)
             }
             
-            # Tạo filename với timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"workflow_data_{safe_school_name}_{timestamp}.json"
+            # === CASE 2 SPECIFIC DATA ===
+            if workflow_type == "case_2" and comparison_results:
+                unified_data['comparison_results'] = {
+                    'method': comparison_results.get('comparison_method', 'name_and_birthdate'),
+                    'import_file_info': workflow_results.get('import_file_info', {}),
+                    'import_teachers_count': comparison_results.get('import_teachers_count', 0),
+                    'import_students_count': comparison_results.get('import_students_count', 0),
+                    'teachers_matched': comparison_results.get('teachers_matched', 0),
+                    'students_matched': comparison_results.get('students_matched', 0),
+                    'teachers_filtered': comparison_results.get('teachers_filtered', []),
+                    'students_filtered': comparison_results.get('students_filtered', []),
+                    'has_students_in_system': workflow_results.get('data_summary', {}).get('has_students_in_system', True)
+                }
+                
+                # Override teachers/students với filtered data cho case 2
+                if comparison_results.get('teachers_filtered'):
+                    unified_data['teachers']['data'] = comparison_results.get('teachers_filtered', [])
+                    unified_data['teachers']['retrieved_count'] = len(comparison_results.get('teachers_filtered', []))
+                
+                # Chỉ override students data nếu hệ thống có học sinh
+                has_students_in_system = workflow_results.get('data_summary', {}).get('has_students_in_system', True)
+                if has_students_in_system and comparison_results.get('students_filtered'):
+                    unified_data['students']['data'] = comparison_results.get('students_filtered', [])
+                    unified_data['students']['retrieved_count'] = len(comparison_results.get('students_filtered', []))
+                elif not has_students_in_system:
+                    # Nếu hệ thống không có học sinh, đánh dấu để converter biết
+                    unified_data['students']['data'] = []
+                    unified_data['students']['retrieved_count'] = 0
+                    unified_data['students']['system_has_students'] = False
+            
+            # === SAVE TO FILE ===
+            filename = f"unified_workflow_{workflow_type}_{safe_school_name}_{timestamp}.json"
             filepath = f"data/output/{filename}"
             
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(workflow_data, f, ensure_ascii=False, indent=2)
+                json.dump(unified_data, f, ensure_ascii=False, indent=2)
+            
+            print_status(f"✅ Đã lưu dữ liệu tổng hợp vào: {filepath}", "success")
+            
+            # In thống kê nhanh
+            teachers_count = unified_data['teachers']['retrieved_count']
+            students_count = unified_data['students']['retrieved_count']
+            print(f"   📊 Tổng: {teachers_count} giáo viên, {students_count} học sinh")
+            
+            if workflow_type == "case_2" and comparison_results:
+                print(f"   🔍 So sánh: {comparison_results.get('teachers_matched', 0)} GV, {comparison_results.get('students_matched', 0)} HS")
             
             return filepath
             
         except Exception as e:
-            print_status(f"⚠️ Lỗi lưu dữ liệu workflow: {e}", "warning")
+            print_status(f"⚠️ Lỗi lưu dữ liệu unified workflow: {e}", "warning")
+            import traceback
+            traceback.print_exc()
             return None
+    
+    def _extract_teachers_data_for_unified(self, teachers_result):
+        """Trích xuất và chuẩn hóa dữ liệu teachers cho unified workflow"""
+        if not teachers_result:
+            return {
+                'success': False,
+                'total_count': 0,
+                'retrieved_count': 0,
+                'data': []
+            }
+        
+        success = teachers_result.get('success', False)
+        if not success:
+            return {
+                'success': False,
+                'total_count': 0,
+                'retrieved_count': 0,
+                'data': []
+            }
+        
+        # Xử lý cấu trúc dữ liệu lồng nhau từ API
+        api_data = teachers_result.get('data', {})
+        if isinstance(api_data, dict) and 'data' in api_data:
+            # Cấu trúc: {success: true, data: {currentCount: 65, data: [...]}}
+            teachers_list = api_data.get('data', [])
+            total_count = api_data.get('currentCount', len(teachers_list))
+        elif isinstance(api_data, list):
+            # Cấu trúc: {success: true, data: [...]}
+            teachers_list = api_data
+            total_count = len(teachers_list)
+        else:
+            teachers_list = []
+            total_count = 0
+        
+        return {
+            'success': success,
+            'total_count': total_count,
+            'retrieved_count': len(teachers_list),
+            'data': teachers_list
+        }
+    
+    def _extract_students_data_for_unified(self, students_result):
+        """Trích xuất và chuẩn hóa dữ liệu students cho unified workflow"""
+        if not students_result:
+            return {
+                'success': False,
+                'total_count': 0,
+                'retrieved_count': 0,
+                'data': []
+            }
+        
+        success = students_result.get('success', False)
+        if not success:
+            return {
+                'success': False,
+                'total_count': 0,
+                'retrieved_count': 0,
+                'data': []
+            }
+        
+        # Xử lý cấu trúc dữ liệu lồng nhau từ API
+        api_data = students_result.get('data', {})
+        if isinstance(api_data, dict) and 'data' in api_data:
+            # Cấu trúc: {success: true, data: {currentCount: 845, data: [...]}}
+            students_list = api_data.get('data', [])
+            total_count = api_data.get('currentCount', len(students_list))
+        elif isinstance(api_data, list):
+            # Cấu trúc: {success: true, data: [...]}
+            students_list = api_data
+            total_count = len(students_list)
+        else:
+            students_list = []
+            total_count = 0
+        
+        return {
+            'success': success,
+            'total_count': total_count,
+            'retrieved_count': len(students_list),
+            'data': students_list
+        }
     
     def _load_latest_login_tokens(self):
         """Tải tokens từ file login gần nhất"""
@@ -1850,31 +2247,17 @@ class SchoolProcessApp:
                 print_status("❌ Thiếu thông tin Admin email hoặc Mật khẩu", "error")
                 return None
             
-            # Bước 2: Login vào OnLuyen API
-            print_status("BƯỚC 2: Thực hiện login OnLuyen API", "info")
+            # Bước 2: Lấy client đã xác thực (ưu tiên token từ file, nếu không có thì login)
+            print_status("BƯỚC 2: Xác thực OnLuyen API", "info")
             
-            client = OnLuyenAPIClient()
-            print_status(f"Đang login với Admin: {admin_email}", "info")
+            client, auth_success, login_result = self._get_authenticated_client(admin_email, password, False)
             
-            result = client.login(admin_email, password)
-            
-            if not result['success']:
-                print_status(f"❌ Login thất bại: {result.get('error', 'Unknown error')}", "error")
-                return None
-            
-            # Kiểm tra tài khoản trùng khớp
-            response_data = result.get('data', {})
-            response_email = response_data.get('account', '').lower().strip()
-            expected_email = admin_email.lower().strip()
-            
-            if response_email != expected_email:
-                print_status("❌ Tài khoản đăng nhập không trùng khớp!", "error")
-                print(f"   Expected: {expected_email}")
-                print(f"   Got: {response_email}")
+            if not auth_success:
+                print_status(f"❌ Xác thực thất bại: {login_result.get('error', 'Unknown error')}", "error")
                 return None
             
             basic_results['api_login'] = True
-            print_status("✅ Login thành công và tài khoản trùng khớp", "success")
+            print_status("✅ OnLuyen API xác thực thành công", "success")
             
             # Bước 3: Lấy danh sách Giáo viên
             print_status("BƯỚC 3: Lấy danh sách Giáo viên", "info")
@@ -1901,11 +2284,11 @@ class SchoolProcessApp:
                     ht_hp_info = self._extract_ht_hp_info(teachers_data)
                     basic_results['ht_hp_info'] = ht_hp_info
                     
-                    # Lưu thông tin HT/HP vào file riêng
-                    school_name = basic_results['school_info'].get('name', 'Unknown')
-                    ht_hp_file = self._save_ht_hp_info(ht_hp_info, school_name)
-                    if ht_hp_file:
-                        basic_results['ht_hp_file'] = ht_hp_file
+                    # HT/HP info được lưu trong unified workflow file - không cần file riêng
+                    # school_name = basic_results['school_info'].get('name', 'Unknown')
+                    # ht_hp_file = self._save_ht_hp_info(ht_hp_info, school_name)
+                    # if ht_hp_file:
+                    #     basic_results['ht_hp_file'] = ht_hp_file
                 else:
                     print_status("⚠️ Định dạng dữ liệu giáo viên không đúng", "warning")
             else:
@@ -1914,22 +2297,66 @@ class SchoolProcessApp:
             # Bước 4: Lấy danh sách Học sinh
             print_status("BƯỚC 4: Lấy danh sách Học sinh", "info")
             
-            students_result = client.get_students(page_index=1, page_size=5000)
+            # Gọi API lần đầu để biết tổng số học sinh
+            students_result = client.get_students(page_index=1, page_size=1000)
             
             if students_result['success'] and students_result.get('data'):
                 students_data = students_result['data']
                 if isinstance(students_data, dict) and 'data' in students_data:
-                    students_list = students_data['data']
-                    students_count = students_data.get('totalCount', len(students_list))
+                    all_students_list = []
+                    students_count = students_data.get('totalCount', 0)
                     
-                    basic_results['students_data'] = True
-                    basic_results['students_result'] = students_result
-                    basic_results['data_summary']['students'] = {
-                        'total': students_count,
-                        'retrieved': len(students_list)
-                    }
+                    print_status(f"📊 Tổng số học sinh cần lấy: {students_count}", "info")
                     
-                    print_status(f"✅ Lấy danh sách học sinh thành công: {len(students_list)}/{students_count}", "success")
+                    if students_count > 0:
+                        # Lấy dữ liệu từ lần gọi đầu tiên
+                        first_batch = students_data['data']
+                        all_students_list.extend(first_batch)
+                        print_status(f"   ✅ Lấy được batch 1: {len(first_batch)} học sinh", "info")
+                        
+                        # Tính số lần gọi API cần thiết
+                        page_size = 1000  # Sử dụng page size nhỏ hơn để đảm bảo ổn định
+                        total_pages = (students_count + page_size - 1) // page_size
+                        
+                        # Gọi API cho các trang còn lại
+                        for page_index in range(2, total_pages + 1):
+                            print_status(f"   🔄 Đang lấy batch {page_index}/{total_pages}...", "info")
+                            
+                            batch_result = client.get_students(page_index=page_index, page_size=page_size)
+                            
+                            if batch_result['success'] and batch_result.get('data'):
+                                batch_data = batch_result['data']
+                                if isinstance(batch_data, dict) and 'data' in batch_data:
+                                    batch_students = batch_data['data']
+                                    all_students_list.extend(batch_students)
+                                    print_status(f"   ✅ Lấy được batch {page_index}: {len(batch_students)} học sinh", "info")
+                                else:
+                                    print_status(f"   ⚠️ Batch {page_index}: Định dạng dữ liệu không đúng", "warning")
+                            else:
+                                print_status(f"   ❌ Batch {page_index}: {batch_result.get('error', 'Lỗi không xác định')}", "error")
+                        
+                        # Cập nhật students_result với tất cả dữ liệu
+                        students_result['data'] = {
+                            'data': all_students_list,
+                            'totalCount': students_count
+                        }
+                        
+                        basic_results['students_data'] = True
+                        basic_results['students_result'] = students_result
+                        basic_results['data_summary']['students'] = {
+                            'total': students_count,
+                            'retrieved': len(all_students_list)
+                        }
+                        
+                        print_status(f"✅ Hoàn thành lấy danh sách học sinh: {len(all_students_list)}/{students_count}", "success")
+                    else:
+                        basic_results['students_data'] = True  # Vẫn coi là thành công vì API hoạt động bình thường
+                        basic_results['students_result'] = students_result
+                        basic_results['data_summary']['students'] = {
+                            'total': 0,
+                            'retrieved': 0
+                        }
+                        print_status("⚠️ Không có học sinh nào trong hệ thống - Đây là trường hợp hợp lệ", "warning")
                 else:
                     print_status("⚠️ Định dạng dữ liệu học sinh không đúng", "warning")
             else:
@@ -1941,7 +2368,7 @@ class SchoolProcessApp:
             print_status(f"❌ Lỗi trong các bước cơ bản: {e}", "error")
             return None
     
-    def _download_import_file(self, school_name, drive_link):
+    def _download_import_file(self, school_name, drive_link, ui_mode=False):
         """Tải file import từ Google Drive với pattern 'import_*'"""
         try:
             # Khởi tạo OAuth client
@@ -1966,7 +2393,7 @@ class SchoolProcessApp:
                 print_status(f"❌ Không tìm thấy file nào có pattern 'import_*.xlsx'", "error")
                 return None
             
-            # Nếu có nhiều file, cho user chọn
+            # Nếu có nhiều file, cho user chọn (hoặc auto-select nếu UI mode)
             selected_file = None
             if len(import_files) == 1:
                 selected_file = import_files[0]
@@ -1976,17 +2403,23 @@ class SchoolProcessApp:
                 for i, file in enumerate(import_files, 1):
                     print(f"   {i}. {file['name']}")
                 
-                try:
-                    choice = get_user_input(f"Chọn file import (1-{len(import_files)})", required=True)
-                    choice_idx = int(choice) - 1
-                    if 0 <= choice_idx < len(import_files):
-                        selected_file = import_files[choice_idx]
-                    else:
+                if ui_mode:
+                    # Trong UI mode, tự động chọn file đầu tiên
+                    selected_file = import_files[0]
+                    print(f"   🔄 Tự động chọn file đầu tiên: {selected_file['name']}")
+                else:
+                    # Trong console mode, cho user chọn
+                    try:
+                        choice = get_user_input(f"Chọn file import (1-{len(import_files)})", required=True)
+                        choice_idx = int(choice) - 1
+                        if 0 <= choice_idx < len(import_files):
+                            selected_file = import_files[choice_idx]
+                        else:
+                            print_status("Lựa chọn không hợp lệ", "error")
+                            return None
+                    except (ValueError, TypeError):
                         print_status("Lựa chọn không hợp lệ", "error")
                         return None
-                except (ValueError, TypeError):
-                    print_status("Lựa chọn không hợp lệ", "error")
-                    return None
             
             if not selected_file:
                 return None
@@ -2087,12 +2520,16 @@ class SchoolProcessApp:
                 # Chuẩn hóa format ngày tháng trong DataFrame trước khi xử lý
                 teachers_df = self._standardize_import_date_formats(teachers_df)
                 
-                # Tìm cột họ tên và ngày sinh
+                # Tìm cột họ tên, ngày sinh và tên đăng nhập
                 name_col = self._find_column_by_keywords(teachers_df.columns, ['họ tên', 'tên', 'name', 'giáo viên'])
                 birth_col = self._find_column_by_keywords(teachers_df.columns, ['ngày sinh', 'sinh', 'birth', 'date'])
+                username_col = self._find_column_by_keywords(teachers_df.columns, ['tên đăng nhập', 'username', 'user name', 'login', 'account'])
                 
-                if name_col and birth_col:
-                    print(f"      📋 Cột tên: '{name_col}', Cột ngày sinh: '{birth_col}'")
+                print(f"      📋 Cột tên: '{name_col}', Cột ngày sinh: '{birth_col}', Cột tên đăng nhập: '{username_col}'")
+                
+                if name_col:  # Chỉ cần có cột tên là đủ để bắt đầu
+                    # Kiểm tra xem có giáo viên nào tên GVCN không (sử dụng pattern matching)
+                    gvcn_found = False
                     
                     # Kiểm tra xem có giáo viên nào tên GVCN không (sử dụng pattern matching)
                     gvcn_found = False
@@ -2116,28 +2553,32 @@ class SchoolProcessApp:
                         
                         for idx, row in teachers_df.iterrows():
                             name = str(row[name_col]).strip() if pd.notna(row[name_col]) else ""
-                            birth = str(row[birth_col]).strip() if pd.notna(row[birth_col]) else ""
+                            birth = str(row[birth_col]).strip() if pd.notna(row[birth_col]) and birth_col else ""
+                            username = str(row[username_col]).strip() if pd.notna(row[username_col]) and username_col else ""
                             
-                            if name and birth:
+                            if name:  # Chỉ cần có tên là đủ
                                 if self._is_gvcn_name_in_import(name):
                                     skipped_gvcn_count += 1
                                     print(f"         🚫 Skipping GVCN: '{name}'")
                                 else:
                                     normalized_name = self._normalize_name(name)
-                                    normalized_birth = self._normalize_date(birth)
+                                    normalized_birth = self._normalize_date(birth) if birth else ""
+                                    normalized_username = username.lower().strip() if username else ""
                                     
                                     teachers_import_data.append({
                                         'name': normalized_name,
                                         'birthdate': normalized_birth,
+                                        'username': normalized_username,
                                         'raw_name': name,
-                                        'raw_birthdate': birth
+                                        'raw_birthdate': birth,
+                                        'raw_username': username
                                     })
                                     parsed_count += 1
                                     
                                     # Debug first few teachers
                                     if parsed_count <= 5:
-                                        print(f"         ✅ Parsed teacher {parsed_count}: '{name}' | '{birth}'")
-                                        print(f"            → Normalized: '{normalized_name}' | '{normalized_birth}'")
+                                        print(f"         ✅ Parsed teacher {parsed_count}: '{name}' | Birth: '{birth}' | Username: '{username}'")
+                                        print(f"            → Normalized: '{normalized_name}' | '{normalized_birth}' | '{normalized_username}'")
                         
                         print(f"      📊 Parsing summary: {parsed_count} teachers parsed, {skipped_gvcn_count} GVCN skipped")
                 
@@ -2206,123 +2647,16 @@ class SchoolProcessApp:
                         print(f"      ✅ Xuất {len(filtered_teachers)}/{original_count} giáo viên (loại bỏ {excluded_count} giáo viên GVCN)")
                         
                     elif teachers_import_data:
-                        # Chỉ xuất giáo viên khớp với import
-                        print(f"      📊 OnLuyen có {len(onluyen_teachers)} giáo viên")
+                        # Chỉ xuất giáo viên khớp với import - Sử dụng enhanced matching logic
+                        print(f"      � OnLuyen có {len(onluyen_teachers)} giáo viên")
                         print(f"      📋 Import có {len(teachers_import_data)} giáo viên")
                         
-                        # Tạo set để so sánh nhanh
-                        import_teachers_set = set()
-                        for t in teachers_import_data:
-                            if t['name'] and t['birthdate']:
-                                import_teachers_set.add((t['name'], t['birthdate']))
+                        # Sử dụng enhanced matching logic
+                        matched_teachers, matched_count = self._match_with_enhanced_logic(
+                            onluyen_teachers, teachers_import_data, "teachers"
+                        )
                         
-                        print(f"      🔍 Import teachers set có {len(import_teachers_set)} items")
-                        
-                        # In ra sample import teachers để debug
-                        print(f"      📝 Sample import teachers:")
-                        for i, (name, birth) in enumerate(list(import_teachers_set)[:5], 1):
-                            print(f"         {i}. '{name}' | '{birth}'")
-                        
-                        # Lọc giáo viên OnLuyen khớp với import
-                        matched_count = 0
-                        debug_comparison = True  # Enable debug để xem tại sao không match
-                        unmatched_onluyen_teachers = []
-                        unmatched_import_teachers = list(import_teachers_set)  # Copy để track
-                        
-                        print(f"      🔍 DEBUG: Sample OnLuyen teachers:")
-                        for i, teacher in enumerate(onluyen_teachers[:5], 1):
-                            teacher_full_name = teacher.get('fullName', '')
-                            teacher_birth_date = teacher.get('birthDate', '')
-                            teacher_info = teacher.get('teacherInfo', {})
-                            teacher_display_name = teacher_info.get('displayName', '') if teacher_info else ''
-                            
-                            print(f"         {i}. Raw fullName: '{teacher_full_name}' | birthDate: '{teacher_birth_date}'")
-                            print(f"            teacherInfo.displayName: '{teacher_display_name}'")
-                            print(f"            → Normalized: '{self._normalize_name(teacher_full_name)}' | '{self._normalize_date(teacher_birth_date)}'")
-                        
-                        # Tạo set tên import để fallback matching
-                        import_teachers_names_only = set()
-                        for t in teachers_import_data:
-                            if t['name']:
-                                import_teachers_names_only.add(t['name'])
-                        
-                        print(f"      🔍 Will try name+birthdate matching first, then name-only fallback if needed")
-                        
-                        for teacher in onluyen_teachers:
-                            # Sử dụng helper function để kiểm tra GVCN trước tiên
-                            if self._is_gvcn_teacher(teacher):
-                                if debug_comparison:
-                                    print(f"    🚫 Skipping GVCN teacher: '{teacher.get('fullName', '')}'")
-                                continue
-                            
-                            # Lấy tên từ cả fullName và teacherInfo.displayName
-                            teacher_full_name = teacher.get('fullName', '') or ''
-                            teacher_info = teacher.get('teacherInfo', {})
-                            teacher_display_name = teacher_info.get('displayName', '') if teacher_info else ''
-                            teacher_name_raw = teacher_full_name or teacher_display_name
-                            
-                            teacher_name = self._normalize_name(teacher_name_raw)
-                            teacher_birth = self._normalize_date(teacher.get('birthDate', ''))
-                            
-                            matched_this_teacher = False
-                            
-                            # Thử match theo name + birthdate trước
-                            if teacher_name and teacher_birth:
-                                teacher_key = (teacher_name, teacher_birth)
-                                if teacher_key in import_teachers_set:
-                                    comparison_results['teachers_filtered'].append(teacher)
-                                    matched_count += 1
-                                    matched_this_teacher = True
-                                    # Xóa khỏi unmatched list
-                                    if teacher_key in unmatched_import_teachers:
-                                        unmatched_import_teachers.remove(teacher_key)
-                                    
-                                    if debug_comparison and matched_count <= 10:
-                                        print(f"    ✅ FULL MATCH (name+birth): '{teacher_name}' | '{teacher_birth}'")
-                            
-                            # Nếu chưa match và có tên, thử match chỉ theo tên (fallback)
-                            if not matched_this_teacher and teacher_name:
-                                if teacher_name in import_teachers_names_only:
-                                    # Tìm import teacher có cùng tên để lấy ngày sinh
-                                    for import_teacher in teachers_import_data:
-                                        if import_teacher['name'] == teacher_name:
-                                            # Match bằng tên, tạo fake key với import birthdate
-                                            fake_key = (teacher_name, import_teacher['birthdate'])
-                                            comparison_results['teachers_filtered'].append(teacher)
-                                            matched_count += 1
-                                            matched_this_teacher = True
-                                            # Xóa khỏi unmatched list
-                                            if fake_key in unmatched_import_teachers:
-                                                unmatched_import_teachers.remove(fake_key)
-                                            
-                                            if debug_comparison and matched_count <= 10:
-                                                print(f"    ⚠️ NAME-ONLY MATCH: '{teacher_name}' (OnLuyen missing birthdate)")
-                                                print(f"        Expected birth: '{import_teacher['birthdate']}' from import")
-                                            break
-                            
-                            # Nếu vẫn không match
-                            if not matched_this_teacher:
-                                if teacher_name:
-                                    unmatched_onluyen_teachers.append({
-                                        'raw_name': teacher_name_raw,
-                                        'raw_birth': teacher.get('birthDate', ''),
-                                        'normalized_name': teacher_name,
-                                        'normalized_birth': teacher_birth
-                                    })
-                                    
-                                    # Debug so sánh
-                                    if debug_comparison and len(unmatched_onluyen_teachers) <= 10:
-                                        print(f"    ❌ NO MATCH: '{teacher_name}' | Birth: '{teacher_birth}'")
-                                        print(f"        Raw fullName: '{teacher_full_name}'")
-                                        print(f"        Raw teacherInfo.displayName: '{teacher_display_name}'")
-                                else:
-                                    # Debug teachers với thông tin thiếu
-                                    if debug_comparison:
-                                        print(f"    ⚠️ Teacher missing info: '{teacher_name_raw}' | '{teacher.get('birthDate', '')}'")
-                                        print(f"        Raw fullName: '{teacher_full_name}'")
-                                        print(f"        Raw teacherInfo.displayName: '{teacher_display_name}'")
-                                        print(f"        → Normalized name: '{teacher_name}' | birth: '{teacher_birth}'")
-                        
+                        comparison_results['teachers_filtered'] = matched_teachers
                         comparison_results['teachers_matched'] = matched_count
                         print(f"      ✅ Khớp {matched_count}/{len(teachers_import_data)} giáo viên")
                         
@@ -2341,63 +2675,13 @@ class SchoolProcessApp:
                     if students_import_data:
                         print("   🔍 So sánh với file import...")
                         
-                        # Tạo set để so sánh nhanh
-                        import_students_set = set()
-                        for s in students_import_data:
-                            if s['name'] and s['birthdate']:
-                                import_students_set.add((s['name'], s['birthdate']))                        
-                        print(f"      📋 Import students set: {len(import_students_set)} items")
+                        # Sử dụng enhanced matching logic
+                        matched_students, matched_count = self._match_with_enhanced_logic(
+                            onluyen_students, students_import_data, "students"
+                        )
                         
-                        # Lọc học sinh OnLuyen khớp với import
-                        matched_count = 0
-                        unmatched_onluyen = []  # Danh sách học sinh OnLuyen không khớp
-                        unmatched_import = []   # Danh sách học sinh Import không khớp
-                        debug_comparison = True  # Set True để debug - ENABLE DEBUG
-                                                
-                        # Tạo set để track các import students đã được match
-                        matched_import_keys = set()
-                        
-                        for student in onluyen_students:
-                            # Học sinh OnLuyen có thể có fullName trống, phải dùng userInfo.displayName
-                            user_info = student.get('userInfo', {})
-                            student_name = self._normalize_name(
-                                student.get('fullName', '') or user_info.get('displayName', '')
-                            )
-                            student_birth = self._normalize_date(
-                                student.get('birthDate', '') or user_info.get('userBirthday', '')
-                            )
-                            
-                            if student_name and student_birth:
-                                student_key = (student_name, student_birth)
-                            
-                                if student_key in import_students_set:
-                                    comparison_results['students_filtered'].append(student)
-                                    matched_count += 1
-                                    matched_import_keys.add(student_key)
-                                else:
-                                    # Log unmatched OnLuyen student
-                                    unmatched_onluyen.append({
-                                        'original_name': student.get('fullName', '') or user_info.get('displayName', ''),
-                                        'original_birth': student.get('birthDate', '') or user_info.get('userBirthday', ''),
-                                        'normalized_name': student_name,
-                                        'normalized_birth': student_birth
-                                    })
-                        
-                        # Tìm import students không được match
-                        for import_key in import_students_set:
-                            if import_key not in matched_import_keys:
-                                # Tìm thông tin gốc của import student này
-                                for import_student in students_import_data:
-                                    if (import_student['name'], import_student['birthdate']) == import_key:
-                                        unmatched_import.append({
-                                            'original_name': import_student['raw_name'],
-                                            'original_birth': import_student['raw_birthdate'],
-                                            'normalized_name': import_student['name'],
-                                            'normalized_birth': import_student['birthdate']
-                                        })
-                                        break
-                        
-                        # Log kết quả chi tiết
+                        comparison_results['students_filtered'] = matched_students
+                        comparison_results['students_matched'] = matched_count
                         print(f"      ✅ Khớp {matched_count}/{len(students_import_data)} học sinh")
                     
                     else:
@@ -2464,6 +2748,243 @@ class SchoolProcessApp:
                 if keyword in col_lower:
                     return col
         return None
+    
+    def _is_date_create_within_days(self, date_create_str, days=2):
+        """Kiểm tra dateCreate có trong vòng N ngày từ hôm nay"""
+        if not date_create_str:
+            return False
+        
+        try:
+            # Parse ISO datetime: "2022-03-07T04:13:38.46Z"
+            if 'T' in date_create_str:
+                date_create_str = date_create_str.split('T')[0]  # Lấy phần date
+            
+            # Parse date: "2022-03-07"
+            date_create = datetime.strptime(date_create_str, '%Y-%m-%d')
+            current_date = datetime.now()
+            
+            # Tính số ngày chênh lệch
+            delta = current_date - date_create
+            
+            return 0 <= delta.days <= days
+        except Exception as e:
+            return False
+    
+    def _find_best_date_create_match(self, candidates_with_same_name, days=30):
+        """
+        Từ danh sách candidates có cùng tên, tìm candidate có dateCreate mới nhất trong vòng N ngày
+        
+        Args:
+            candidates_with_same_name: List các OnLuyen records có cùng tên
+            days: Số ngày từ hiện tại để check dateCreate (default 30 ngày)
+            
+        Returns:
+            dict: Best match candidate hoặc None
+        """
+        valid_candidates = []
+        
+        print(f"            🔍 Checking dateCreate within {days} days...")
+        
+        for candidate in candidates_with_same_name:
+            date_create = candidate.get('dateCreate', '')
+            if self._is_date_create_within_days(date_create, days):
+                try:
+                    # Parse để so sánh
+                    if 'T' in date_create:
+                        date_create_clean = date_create.split('T')[0]
+                    else:
+                        date_create_clean = date_create
+                    
+                    parsed_date = datetime.strptime(date_create_clean, '%Y-%m-%d')
+                    valid_candidates.append((candidate, parsed_date))
+                    print(f"            ✅ Valid candidate: dateCreate = {date_create}")
+                except:
+                    print(f"            ❌ Invalid dateCreate format: {date_create}")
+                    continue
+            else:
+                print(f"            ❌ Outside {days} days range: {date_create}")
+        
+        if not valid_candidates:
+            print(f"            ❌ No valid candidates within {days} days")
+            return None
+        
+        # Sắp xếp theo dateCreate mới nhất (descending)
+        valid_candidates.sort(key=lambda x: x[1], reverse=True)
+        best_candidate = valid_candidates[0][0]
+        
+        print(f"            ✅ Best match: dateCreate = {best_candidate.get('dateCreate', '')}")
+        return best_candidate
+        
+        if not valid_candidates:
+            return None
+        
+        # Sắp xếp theo dateCreate mới nhất (descending)
+        valid_candidates.sort(key=lambda x: x[1], reverse=True)
+        
+        return valid_candidates[0][0]  # Trả về candidate có dateCreate mới nhất
+    
+    def _match_with_enhanced_logic(self, onluyen_records, import_data, record_type="students"):
+        """
+        So sánh với logic nâng cao 3 mức ưu tiên:
+        1. Ưu tiên cao nhất: Tên + Ngày sinh (exact match)
+        2. Ưu tiên cao: Tên + Tên đăng nhập (khi có username)
+        3. Ưu tiên thấp: Chỉ Tên (dùng dateCreate để chọn người mới nhất nếu có nhiều người cùng tên)
+        
+        Logic cho Method 3:
+        - Nếu chỉ có 1 người cùng tên: match luôn
+        - Nếu có nhiều người cùng tên: chọn người có dateCreate mới nhất trong 30 ngày
+        - Nếu không ai có dateCreate trong 30 ngày: fallback chọn người đầu tiên
+        
+        Args:
+            onluyen_records: List records từ OnLuyen API
+        Args:
+            onluyen_records: List records từ OnLuyen API
+            import_data: List records từ file import đã parse
+            record_type: "students" hoặc "teachers"
+            
+        Returns:
+            tuple: (matched_records, matched_count)
+        """
+        matched_records = []
+        matched_count = 0
+        
+        # Tạo lookup dictionaries
+        # 1. Name + Birthdate exact match (ưu tiên cao nhất)
+        name_birth_lookup = {}
+        for item in import_data:
+            if item['name'] and item.get('birthdate'):
+                key = (item['name'], item['birthdate'])
+                name_birth_lookup[key] = item
+        
+        # 2. Name + Username match (ưu tiên cao) - bao gồm cả có và không có birthdate
+        name_username_lookup = {}
+        for item in import_data:
+            if item['name'] and item.get('username'):
+                key = (item['name'], item['username'])
+                name_username_lookup[key] = item
+        
+        # 3. Name-only lookup cho fallback (tất cả items có tên)
+        name_only_lookup = {}
+        for item in import_data:
+            if item['name']:
+                name = item['name']
+                if name not in name_only_lookup:
+                    name_only_lookup[name] = []
+                name_only_lookup[name].append(item)
+        
+        print(f"      🔍 Enhanced matching for {record_type}:")
+        print(f"         - Name+Birth lookup: {len(name_birth_lookup)} items")
+        print(f"         - Name+Username lookup: {len(name_username_lookup)} items")
+        print(f"         - Name-only lookup: {len(name_only_lookup)} items")
+        
+        # Group OnLuyen records by name for efficient lookup
+        onluyen_by_name = {}
+        for record in onluyen_records:
+            if record_type == "students":
+                user_info = record.get('userInfo', {})
+                record_name = self._normalize_name(
+                    record.get('fullName', '') or user_info.get('displayName', '')
+                )
+            else:  # teachers
+                record_info = record.get('teacherInfo', {})
+                record_name = self._normalize_name(
+                    record.get('fullName', '') or record_info.get('displayName', '')
+                )
+            
+            if record_name:
+                if record_name not in onluyen_by_name:
+                    onluyen_by_name[record_name] = []
+                onluyen_by_name[record_name].append(record)
+        
+        # Process each OnLuyen record
+        for record in onluyen_records:
+            # Skip GVCN teachers
+            if record_type == "teachers" and self._is_gvcn_teacher(record):
+                continue
+            
+            # Extract name, birthdate and username
+            if record_type == "students":
+                user_info = record.get('userInfo', {})
+                record_name = self._normalize_name(
+                    record.get('fullName', '') or user_info.get('displayName', '')
+                )
+                record_birth = self._normalize_date(
+                    record.get('birthDate', '') or user_info.get('userBirthday', '')
+                )
+                record_username = (record.get('account', '') or user_info.get('account', '')).lower().strip()
+            else:  # teachers
+                record_info = record.get('teacherInfo', {})
+                record_name = self._normalize_name(
+                    record.get('fullName', '') or record_info.get('displayName', '')
+                )
+                record_birth = self._normalize_date(record.get('birthDate', ''))
+                record_username = record.get('account', '').lower().strip()
+            
+            if not record_name:
+                continue
+            
+            matched = False
+            
+            # Method 1: Exact name + birthdate match (ưu tiên cao nhất)
+            if record_name and record_birth:
+                key = (record_name, record_birth)
+                if key in name_birth_lookup:
+                    matched_records.append(record)
+                    matched_count += 1
+                    matched = True
+                    print(f"         ✅ Name+Birth match: '{record_name}' | '{record_birth}'")
+                    continue
+            
+            # Method 2: Name + Username match (ưu tiên cao)
+            if not matched and record_name and record_username:
+                key = (record_name, record_username)
+                if key in name_username_lookup:
+                    matched_records.append(record)
+                    matched_count += 1
+                    matched = True
+                    print(f"         ✅ Name+Username match: '{record_name}' | '{record_username}'")
+                    continue
+            
+            # Method 3: Name-only match với dateCreate logic (ưu tiên thấp nhất)
+            if not matched and record_name in name_only_lookup:
+                # Lấy tất cả OnLuyen records có cùng tên
+                candidates_with_same_name = onluyen_by_name.get(record_name, [])
+                
+                if len(candidates_with_same_name) == 1:
+                    # Chỉ có 1 candidate, match luôn
+                    matched_records.append(record)
+                    matched_count += 1
+                    matched = True
+                    print(f"         ✅ Name-only match (single): '{record_name}'")
+                
+                elif len(candidates_with_same_name) > 1:
+                    # Có nhiều candidates cùng tên, chọn theo dateCreate mới nhất trong vòng 30 ngày
+                    print(f"         🔍 Found {len(candidates_with_same_name)} candidates with name '{record_name}', checking dateCreate...")
+                    
+                    # Debug: hiển thị dateCreate của các candidates
+                    for i, candidate in enumerate(candidates_with_same_name, 1):
+                        date_create = candidate.get('dateCreate', 'No dateCreate')
+                        print(f"            Candidate {i}: dateCreate = {date_create}")
+                    
+                    best_match = self._find_best_date_create_match(candidates_with_same_name, 30)
+                    
+                    if best_match and best_match == record:  # Chỉ add nếu record hiện tại là best match
+                        matched_records.append(best_match)
+                        matched_count += 1
+                        matched = True
+                        print(f"         ✅ Name-only match (best dateCreate of {len(candidates_with_same_name)}): '{record_name}' | dateCreate: {best_match.get('dateCreate', '')}")
+                    elif not best_match:
+                        # Không có ai trong vòng 30 ngày, lấy người đầu tiên (fallback)
+                        if record == candidates_with_same_name[0]:
+                            matched_records.append(record)
+                            matched_count += 1
+                            matched = True
+                            print(f"         ✅ Name-only match (fallback first of {len(candidates_with_same_name)}): '{record_name}'")
+            
+            if not matched:
+                print(f"         ❌ No match found: '{record_name}'")
+        
+        return matched_records, matched_count
     
     def _analyze_date_format_in_import(self, df, column_name):
         """Phân tích format ngày tháng thực tế trong DataFrame cột cụ thể"""
@@ -2726,42 +3247,10 @@ class SchoolProcessApp:
             print_status(f"❌ Lỗi trích xuất thông tin HT/HP: {e}", "error")
             return {'ht': [], 'hp': []}
     
-    def _save_ht_hp_info(self, ht_hp_info, school_name):
-        """Lưu thông tin HT/HP vào file riêng"""
-        try:
-            if not ht_hp_info or (not ht_hp_info.get('ht') and not ht_hp_info.get('hp')):
-                print("   ⚠️ Không có thông tin HT/HP để lưu")
-                return None
-            
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            safe_school_name = "".join(c for c in school_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            filename = f"ht_hp_info_{safe_school_name}_{timestamp}.json"
-            filepath = f"data/output/{filename}"
-            
-            # Tạo cấu trúc dữ liệu để lưu
-            save_data = {
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'school_name': school_name,
-                'summary': {
-                    'total_ht': ht_hp_info.get('total_ht', 0),
-                    'total_hp': ht_hp_info.get('total_hp', 0)
-                },
-                'hieu_truong': ht_hp_info.get('ht', []),
-                'hieu_pho': ht_hp_info.get('hp', [])
-            }
-            
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(save_data, f, ensure_ascii=False, indent=2)
-            
-            print_status(f"✅ Đã lưu thông tin HT/HP: {filepath}", "success")
-            print(f"   👑 {ht_hp_info.get('total_ht', 0)} Hiệu trường")
-            print(f"   🔸 {ht_hp_info.get('total_hp', 0)} Hiệu phó")
-            
-            return filepath
-            
-        except Exception as e:
-            print_status(f"❌ Lỗi lưu thông tin HT/HP: {e}", "error")
-            return None
+    # Legacy method - replaced by unified workflow file
+    # def _save_ht_hp_info(self, ht_hp_info, school_name):
+    #     """Deprecated: HT/HP info is now saved in unified workflow file"""
+    #     pass
     
     def _is_gvcn_name_in_import(self, name):
         """Kiểm tra xem tên có phải là GVCN hay không (dùng cho cả teacher data và import parsing)"""
@@ -3090,42 +3579,10 @@ class SchoolProcessApp:
         
         print("\n✅ Test completed. Format detection và standardization hoạt động đúng.")
     
-    def _save_filtered_workflow_data(self, workflow_results, comparison_results):
-        """Lưu dữ liệu workflow đã lọc"""
-        try:
-            
-            school_name = workflow_results['school_info'].get('name', 'Unknown')
-            safe_school_name = "".join(c for c in school_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            
-            # Tạo cấu trúc JSON với dữ liệu đã lọc
-            filtered_data = {
-                'school_info': workflow_results['school_info'],
-                'data_summary': workflow_results.get('data_summary', {}),
-                'comparison_results': {
-                    'method': comparison_results.get('comparison_method', 'name_and_birthdate'),
-                    'import_teachers_count': comparison_results.get('import_teachers_count', 0),
-                    'import_students_count': comparison_results.get('import_students_count', 0),
-                    'teachers_matched': comparison_results.get('teachers_matched', 0),
-                    'students_matched': comparison_results.get('students_matched', 0)
-                },
-                'ht_hp_info': workflow_results.get('ht_hp_info', {}),  # Thêm thông tin HT/HP
-                'teachers': comparison_results.get('teachers_filtered', []),
-                'students': comparison_results.get('students_filtered', [])
-            }
-            
-            # Tạo filename với timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"workflow_filtered_{safe_school_name}_{timestamp}.json"
-            filepath = f"data/output/{filename}"
-            
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(filtered_data, f, ensure_ascii=False, indent=2)
-            
-            return filepath
-            
-        except Exception as e:
-            print_status(f"⚠️ Lỗi lưu dữ liệu filtered workflow: {e}", "warning")
-            return None
+    # Legacy method - replaced by _save_unified_workflow_data
+    # def _save_filtered_workflow_data(self, workflow_results, comparison_results):
+    #     """Deprecated: Use _save_unified_workflow_data instead"""
+    #     pass
     
     def _print_workflow_summary_case_2(self, results):
         """In tóm tắt kết quả workflow Case 2"""
@@ -3167,7 +3624,13 @@ class SchoolProcessApp:
             else:
                 print(f"   👨‍🏫 Giáo viên khớp: {comp.get('teachers_matched', 0)}/{comp.get('import_teachers_count', 0)}")
             
-            print(f"   👨‍🎓 Học sinh khớp: {comp.get('students_matched', 0)}/{comp.get('import_students_count', 0)}")
+            # Hiển thị thông tin về học sinh
+            has_students_in_system = comp.get('has_students_in_system', True)
+            if not has_students_in_system:
+                print(f"   👨‍🎓 Học sinh: KHÔNG CÓ TRONG HỆ THỐNG (File Excel sẽ không có sheet HOC-SINH)")
+            else:
+                print(f"   👨‍🎓 Học sinh khớp: {comp.get('students_matched', 0)}/{comp.get('import_students_count', 0)}")
+            
             print(f"   🔧 Phương pháp: {comp.get('method', 'name_and_birthdate')}")
         
         # Thông tin HT/HP

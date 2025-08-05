@@ -102,10 +102,10 @@ def analyze_excel_structure(file_path):
                 
                 sheet_info['potential_email_columns'] = potential_email_columns
                 
-                # Hiển thị vài dòng đầu tiên
-                print(f"   📄 PREVIEW DỮ LIỆU (5 dòng đầu):")
-                print(df.head().to_string(index=True))
-                print()
+                # # Hiển thị vài dòng đầu tiên
+                # print(f"   📄 PREVIEW DỮ LIỆU (5 dòng đầu):")
+                # print(df.head().to_string(index=True))
+                # print()
                 
                 sheets_info[sheet_name] = sheet_info
                 

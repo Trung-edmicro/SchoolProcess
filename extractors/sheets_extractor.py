@@ -77,16 +77,46 @@ class GoogleSheetsExtractor:
             
             print(f"✅ Đã đọc {len(df)} hàng, {len(df.columns)} cột")
             
-            # Xử lý header (nếu columns là số thì cần mapping)
-            if all(isinstance(col, (int, float)) for col in df.columns):
-                # Nếu columns là số, lấy hàng đầu tiên làm header
+            # Xử lý header - thử cả hàng 1 và hàng 2
+            if all(isinstance(col, (int, float)) for col in df.columns) or \
+               any('Unnamed:' in str(col) for col in df.columns) or \
+               any('#REF!' in str(col) for col in df.columns):
+                
+                # Kiểm tra cả hàng 1 và hàng 2 để tìm header thực tế
+                header_found = False
+                header_row_index = 0
+                
+                # Thử hàng 1 trước
                 if len(df) > 0:
-                    header_row = df.iloc[0].tolist()
+                    potential_header = df.iloc[0].tolist()
+                    # print(f"🔍 Kiểm tra hàng 1 làm header: {potential_header[:5]}...")
+                    
+                    # Kiểm tra xem có phải header hợp lệ không
+                    if any(col in str(potential_header).lower() for col in ['tên trường', 'admin', 'mật khẩu', 'link driver']):
+                        header_row_index = 0
+                        header_found = True
+                        # print(f"✅ Tìm thấy header hợp lệ ở hàng 1")
+                
+                # Nếu hàng 1 không phải header, thử hàng 2
+                if not header_found and len(df) > 1:
+                    potential_header = df.iloc[1].tolist()
+                    print(f"🔍 Kiểm tra hàng 2 làm header: {potential_header[:5]}...")
+                    
+                    if any(col in str(potential_header).lower() for col in ['tên trường', 'admin', 'mật khẩu', 'link driver']):
+                        header_row_index = 1
+                        header_found = True
+                        print(f"✅ Tìm thấy header hợp lệ ở hàng 2")
+                
+                # Áp dụng header đã tìm được
+                if header_found:
+                    header_row = df.iloc[header_row_index].tolist()
                     df.columns = header_row
-                    df = df.iloc[1:].reset_index(drop=True)
-                    print(f"📋 Đã chuyển đổi header từ hàng đầu tiên")
+                    df = df.iloc[header_row_index + 1:].reset_index(drop=True)
+                    # print(f"📋 Đã chuyển đổi header từ hàng {header_row_index + 1}")
+                else:
+                    print("⚠️ Không tìm thấy header hợp lệ, giữ nguyên columns")
             
-            print(f"📋 Available columns: {list(df.columns)}")
+            # print(f"📋 Available columns after processing: {list(df.columns)}")
             
             # Tìm các cột cần thiết
             found_columns = {}
@@ -109,12 +139,12 @@ class GoogleSheetsExtractor:
                     if not matched:
                         missing_columns.append(required_col)
             
-            print(f"\n🔍 KẾT QUẢ TÌM KIẾM CỘT:")
-            for req_col, found_col in found_columns.items():
-                print(f"   ✅ '{req_col}' → '{found_col}'")
+            # print(f"\n🔍 KẾT QUẢ TÌM KIẾM CỘT:")
+            # for req_col, found_col in found_columns.items():
+            #     print(f"   ✅ '{req_col}' → '{found_col}'")
             
-            for missing_col in missing_columns:
-                print(f"   ❌ '{missing_col}' → Không tìm thấy")
+            # for missing_col in missing_columns:
+            #     print(f"   ❌ '{missing_col}' → Không tìm thấy")
             
             if not found_columns:
                 print("\n❌ Không tìm thấy cột nào cần thiết")
@@ -144,14 +174,13 @@ class GoogleSheetsExtractor:
                     else:
                         value = str(value).strip()
                     
-                    # Lấy trực tiếp text value cho tất cả các cột, bao gồm "Link driver dữ liệu"
-                    if req_col == 'Link driver dữ liệu':
-                        print(f"   🔍 Processing Link driver dữ liệu: '{value}'")
-                        # Sử dụng trực tiếp text value mà không extract hyperlink
-                        if value and value != 'None':
-                            print(f"   � Using text value for row {index}: {value}")
-                        else:
-                            print(f"   ⚠️ No text value found for row {index}")
+                    # # Lấy trực tiếp text value cho tất cả các cột, bao gồm "Link driver dữ liệu"
+                    # if req_col == 'Link driver dữ liệu':
+                    #     # Sử dụng trực tiếp text value mà không extract hyperlink
+                    #     if value and value != 'None':
+                    #         print(f"   � Using text value for row {index}: {value}")
+                    #     else:
+                    #         print(f"   ⚠️ No text value found for row {index}")
                     
                     row_data[req_col] = value
                 
@@ -165,15 +194,15 @@ class GoogleSheetsExtractor:
             print(f"   📊 Số cột tìm được: {len(found_columns)}")
             
             # Hiển thị preview dữ liệu
-            print(f"\n📋 PREVIEW DỮ LIỆU:")
-            for i, row_data in enumerate(extracted_data['data'][:3]):  # Chỉ hiển thị 3 hàng đầu
-                print(f"   Hàng {i+1}:")
-                for req_col in required_columns:
-                    if req_col in row_data:
-                        value = row_data[req_col]
-                        display_value = value[:50] + "..." if value and len(value) > 50 else value
-                        print(f"      {req_col}: {display_value}")
-                print()
+            # print(f"\n📋 PREVIEW DỮ LIỆU:")
+            # for i, row_data in enumerate(extracted_data['data'][:3]):  # Chỉ hiển thị 3 hàng đầu
+            #     print(f"   Hàng {i+1}:")
+            #     for req_col in required_columns:
+            #         if req_col in row_data:
+            #             value = row_data[req_col]
+            #             display_value = value[:50] + "..." if value and len(value) > 50 else value
+            #             print(f"      {req_col}: {display_value}")
+            #     print()
             
             if len(extracted_data['data']) > 3:
                 print(f"   ... và {len(extracted_data['data']) - 3} hàng khác")

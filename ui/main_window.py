@@ -9,6 +9,10 @@ import threading
 import json
 import os
 import traceback
+import subprocess
+import platform
+import base64
+import glob
 
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
@@ -34,6 +38,9 @@ class SchoolProcessMainWindow:
         self.setup_variables()
         self.setup_ui()
         self.setup_bindings()
+        
+        # Hiển thị thông tin năm học hiện tại nếu có
+        self.root.after(1000, self._show_initial_school_year_info)
         
     def setup_main_window(self):
         """Thiết lập cửa sổ chính"""
@@ -195,13 +202,13 @@ class SchoolProcessMainWindow:
         
         # Workflow buttons
         self.btn_case1 = ttk.Button(left_frame,
-                                   text="📊 Case 1: Toàn bộ dữ liệu",
+                                   text="Export toàn bộ dữ liệu",
                                    style='Primary.TButton',
                                    command=self.start_workflow_case1)
         self.btn_case1.pack(fill='x', pady=(0, 5))
         
         self.btn_case2 = ttk.Button(left_frame,
-                                   text="🔍 Case 2: Dữ liệu theo file import",
+                                   text="Export theo dữ liệu file import",
                                    style='Primary.TButton',
                                    command=self.start_workflow_case2)
         self.btn_case2.pack(fill='x', pady=(0, 15))
@@ -211,7 +218,7 @@ class SchoolProcessMainWindow:
         separator1.pack(fill='x', pady=(0, 15))
         
         # Individual functions
-        functions_label = ttk.Label(left_frame, text="Chức năng đơn lẻ", style='Heading.TLabel')
+        functions_label = ttk.Label(left_frame, text="Chức năng khác", style='Heading.TLabel')
         functions_label.pack(pady=(0, 10), anchor='w')
         
         self.btn_get_teachers = ttk.Button(left_frame,
@@ -224,10 +231,24 @@ class SchoolProcessMainWindow:
                                           command=self.get_students_data)
         self.btn_get_students.pack(fill='x', pady=(0, 5))
         
-        self.btn_convert_excel = ttk.Button(left_frame,
-                                           text="📄 Chuyển đổi JSON → Excel",
-                                           command=self.convert_json_to_excel)
-        self.btn_convert_excel.pack(fill='x', pady=(0, 15))
+        # Frame cho các button năm học
+        # year_frame = ttk.Frame(left_frame)
+        # year_frame.pack(fill='x', pady=(5, 5))
+        
+        # self.btn_change_year_2024 = ttk.Button(year_frame,
+        #                                       text="📅 Chuyển năm 2024",
+        #                                       command=lambda: self.change_school_year(2024))
+        # self.btn_change_year_2024.pack(side='left', fill='x', expand=True, padx=(0, 2))
+        
+        # self.btn_change_year_2025 = ttk.Button(year_frame,
+        #                                       text="📅 Chuyển năm 2025", 
+        #                                       command=lambda: self.change_school_year(2025))
+        # self.btn_change_year_2025.pack(side='left', fill='x', expand=True, padx=(2, 0))
+        
+        # self.btn_convert_excel = ttk.Button(left_frame,
+        #                                    text="📄 Chuyển đổi JSON → Excel",
+        #                                    command=self.convert_json_to_excel)
+        # self.btn_convert_excel.pack(fill='x', pady=(0, 15))
         
         # Separator
         separator2 = ttk.Separator(left_frame, orient='horizontal')
@@ -665,10 +686,26 @@ class SchoolProcessMainWindow:
             self.update_progress_safe(20, "Bắt đầu xử lý...")
             
             # Execute actual workflow với selected school data
-            console_app._execute_workflow_case_1(selected_school_data)
+            workflow_results = console_app._execute_workflow_case_1(selected_school_data, ui_mode=True)
             
-            self.update_progress_safe(100, "Hoàn thành")
+            self.update_progress_safe(90, "Xử lý hoàn thành")
             self.log_message_safe("Workflow Case 1 hoàn thành!", "success")
+            
+            # Hiển thị dialog xem file export nếu có kết quả
+            if workflow_results and workflow_results.get('excel_file_path'):
+                self.update_progress_safe(100, "Hiển thị kết quả")
+                
+                export_results = {
+                    'json_file_path': workflow_results.get('json_file_path', ''),
+                    'excel_file_path': workflow_results.get('excel_file_path', ''),
+                    'school_name': workflow_results.get('school_info', {}).get('name', 'N/A'),
+                    'drive_link': workflow_results.get('school_info', {}).get('drive_link', '')
+                }
+                
+                # Hiển thị dialog trong main thread
+                self.root.after(0, lambda: self.show_export_dialog(export_results))
+            else:
+                self.update_progress_safe(100, "Hoàn thành")
             
         except Exception as e:
             self.log_message_safe(f"Lỗi trong workflow Case 1: {str(e)}", "error")
@@ -692,10 +729,26 @@ class SchoolProcessMainWindow:
             self.update_progress_safe(20, "Bắt đầu xử lý...")
             
             # Execute actual workflow với selected school data
-            console_app._execute_workflow_case_2(selected_school_data)
+            workflow_results = console_app._execute_workflow_case_2(selected_school_data, ui_mode=True)
             
-            self.update_progress_safe(100, "Hoàn thành")
+            self.update_progress_safe(90, "Xử lý hoàn thành")
             self.log_message_safe("Workflow Case 2 hoàn thành!", "success")
+            
+            # Hiển thị dialog xem file export nếu có kết quả
+            if workflow_results and workflow_results.get('excel_file_path'):
+                self.update_progress_safe(100, "Hiển thị kết quả")
+                
+                export_results = {
+                    'json_file_path': workflow_results.get('json_file_path', ''),
+                    'excel_file_path': workflow_results.get('excel_file_path', ''),
+                    'school_name': workflow_results.get('school_info', {}).get('name', 'N/A'),
+                    'drive_link': workflow_results.get('school_info', {}).get('drive_link', '')
+                }
+                
+                # Hiển thị dialog trong main thread
+                self.root.after(0, lambda: self.show_export_dialog(export_results))
+            else:
+                self.update_progress_safe(100, "Hoàn thành")
             
         except Exception as e:
             self.log_message_safe(f"Lỗi trong workflow Case 2: {str(e)}", "error")
@@ -703,6 +756,23 @@ class SchoolProcessMainWindow:
         finally:
             self.is_processing = False
             self.update_button_state_safe(self.btn_stop, 'disabled')
+            
+    def show_export_dialog(self, export_results):
+        """Hiển thị dialog xem file export"""
+        try:
+            dialog = ExportViewDialog(self, export_results)
+            result = dialog.show()
+            
+            if result == 'view':
+                self.log_message("Đã mở file export để xem", "info")
+            elif result == 'upload':
+                self.log_message("Bắt đầu đẩy files lên Google Drive...", "info")
+            else:
+                self.log_message("Đã đóng dialog export", "info")
+                
+        except Exception as e:
+            self.log_message(f"Lỗi hiển thị dialog export: {str(e)}", "error")
+            traceback.print_exc()
             
     def get_teachers_data(self):
         """Lấy dữ liệu giáo viên"""
@@ -720,25 +790,39 @@ class SchoolProcessMainWindow:
         """Lấy dữ liệu giáo viên trong thread"""
         try:
             self.is_processing = True
-            self.update_progress(10, "Đang kết nối OnLuyen API...")
+            self.update_progress_safe(10, "Đang kết nối OnLuyen API...")
             
             client = OnLuyenAPIClient()
             
-            self.update_progress(30, "Đang lấy dữ liệu giáo viên...")
+            # Load access_token từ file login
+            self.update_progress_safe(20, "Đang load access token...")
+            if not client.load_token_from_login_file():
+                self.log_message_safe("Không tìm thấy access token. Vui lòng login trước.", "error")
+                return
+            
+            self.update_progress_safe(30, "Đang lấy dữ liệu giáo viên...")
             result = client.get_teachers(page_size=1000)
             
             if result['success']:
-                self.update_progress(80, "Đang xử lý dữ liệu...")
+                self.update_progress_safe(80, "Đang xử lý dữ liệu...")
                 data = result.get('data', {})
                 teachers_list = data.get('data', []) if isinstance(data, dict) else data
                 
-                self.update_progress(100, "Hoàn thành")
-                self.log_message(f"Lấy thành công {len(teachers_list)} giáo viên", "success")
+                self.update_progress_safe(100, "Hoàn thành")
+                self.log_message_safe(f"✅ Lấy thành công {len(teachers_list)} giáo viên", "success")
+                
+                # Hiển thị thông tin năm học từ token nếu có
+                self.root.after(0, self._log_current_school_year_info)
+                
             else:
-                self.log_message(f"Lỗi lấy dữ liệu giáo viên: {result.get('error')}", "error")
+                error_msg = result.get('error', 'Unknown error')
+                if 'token' in error_msg.lower() or 'unauthorized' in error_msg.lower():
+                    self.log_message_safe("⚠️ Access token có thể đã hết hạn. Vui lòng login lại.", "warning")
+                else:
+                    self.log_message_safe(f"❌ Lỗi lấy dữ liệu giáo viên: {error_msg}", "error")
                 
         except Exception as e:
-            self.log_message(f"Lỗi: {str(e)}", "error")
+            self.log_message_safe(f"❌ Lỗi: {str(e)}", "error")
         finally:
             self.is_processing = False
             
@@ -758,28 +842,176 @@ class SchoolProcessMainWindow:
         """Lấy dữ liệu học sinh trong thread"""
         try:
             self.is_processing = True
-            self.update_progress(10, "Đang kết nối OnLuyen API...")
+            self.update_progress_safe(10, "Đang kết nối OnLuyen API...")
             
             client = OnLuyenAPIClient()
             
-            self.update_progress(30, "Đang lấy dữ liệu học sinh...")
+            # Load access_token từ file login
+            self.update_progress_safe(20, "Đang load access token...")
+            if not client.load_token_from_login_file():
+                self.log_message_safe("Không tìm thấy access token. Vui lòng login trước.", "error")
+                return
+            
+            self.update_progress_safe(30, "Đang lấy dữ liệu học sinh...")
             result = client.get_students(page_index=1, page_size=5000)
             
             if result['success']:
-                self.update_progress(80, "Đang xử lý dữ liệu...")
+                self.update_progress_safe(80, "Đang xử lý dữ liệu...")
                 data = result.get('data', {})
                 students_list = data.get('data', []) if isinstance(data, dict) else data
                 
-                self.update_progress(100, "Hoàn thành")
-                self.log_message(f"Lấy thành công {len(students_list)} học sinh", "success")
+                self.update_progress_safe(100, "Hoàn thành")
+                self.log_message_safe(f"✅ Lấy thành công {len(students_list)} học sinh", "success")
+                
+                # Hiển thị thông tin năm học từ token nếu có
+                self.root.after(0, self._log_current_school_year_info)
+                
             else:
-                self.log_message(f"Lỗi lấy dữ liệu học sinh: {result.get('error')}", "error")
+                error_msg = result.get('error', 'Unknown error')
+                if 'token' in error_msg.lower() or 'unauthorized' in error_msg.lower():
+                    self.log_message_safe("⚠️ Access token có thể đã hết hạn. Vui lòng login lại.", "warning")
+                else:
+                    self.log_message_safe(f"❌ Lỗi lấy dữ liệu học sinh: {error_msg}", "error")
                 
         except Exception as e:
-            self.log_message(f"Lỗi: {str(e)}", "error")
+            self.log_message_safe(f"❌ Lỗi: {str(e)}", "error")
         finally:
             self.is_processing = False
             
+    def _log_current_school_year_info(self):
+        """Hiển thị thông tin năm học hiện tại từ access token"""
+        try:
+            from pathlib import Path
+            
+            # Tìm file login gần nhất
+            pattern = "data/output/onluyen_login_*.json"
+            files = glob.glob(pattern)
+            
+            if not files:
+                return
+            
+            # Lấy file mới nhất
+            latest_file = max(files, key=lambda f: Path(f).stat().st_mtime)
+            
+            with open(latest_file, 'r', encoding='utf-8') as f:
+                login_data = json.load(f)
+            
+            access_token = login_data.get('tokens', {}).get('access_token')
+            if access_token:
+                # Decode JWT token manually (chỉ lấy payload, không verify)
+                parts = access_token.split('.')
+                if len(parts) >= 2:
+                    # Decode payload (part 1)
+                    payload = parts[1]
+                    # Thêm padding nếu cần
+                    padding = len(payload) % 4
+                    if padding:
+                        payload += '=' * (4 - padding)
+                    
+                    decoded_bytes = base64.b64decode(payload)
+                    decoded = json.loads(decoded_bytes.decode('utf-8'))
+                    
+                    school_year = decoded.get('SchoolYear')
+                    display_name = decoded.get('DisplayName', '')
+                    
+                    if school_year:
+                        self.log_message(f"📅 Năm học hiện tại: {school_year}", "info")
+                    if display_name:
+                        self.log_message(f"👤 Tài khoản: {display_name}", "info")
+                    
+        except Exception as e:
+            # Không log lỗi này vì không quan trọng
+            pass
+    
+    def _show_initial_school_year_info(self):
+        """Hiển thị thông tin năm học khi khởi động ứng dụng"""
+        try:
+            from pathlib import Path
+            
+            # Tìm file login gần nhất
+            pattern = "data/output/onluyen_login_*.json"
+            files = glob.glob(pattern)
+            
+            if files:
+                # Lấy file mới nhất
+                latest_file = max(files, key=lambda f: Path(f).stat().st_mtime)
+                
+                with open(latest_file, 'r', encoding='utf-8') as f:
+                    login_data = json.load(f)
+                
+                tokens = login_data.get('tokens', {})
+                if tokens.get('access_token'):
+                    self.log_message("🔑 Tìm thấy access token từ phiên đăng nhập trước", "info")
+                    self._log_current_school_year_info()
+                else:
+                    self.log_message("ℹ️ Chưa có access token. Vui lòng login hoặc thực hiện workflow để lấy dữ liệu.", "info")
+            else:
+                self.log_message("ℹ️ Chưa có phiên đăng nhập nào. Vui lòng thực hiện workflow để bắt đầu.", "info")
+                
+        except Exception as e:
+            # Không log lỗi này
+            pass
+    
+    def change_school_year(self, year):
+        """Thay đổi năm học"""
+        if self.is_processing:
+            messagebox.showwarning("Cảnh báo", "Hệ thống đang xử lý. Vui lòng đợi.")
+            return
+            
+        self.log_message(f"Bắt đầu thay đổi năm học sang {year}...", "info")
+        
+        thread = threading.Thread(target=self._change_school_year_thread, args=(year,))
+        thread.daemon = True
+        thread.start()
+        
+    def _change_school_year_thread(self, year):
+        """Thay đổi năm học trong thread"""
+        try:
+            self.is_processing = True
+            self.update_progress_safe(10, f"Đang thay đổi năm học sang {year}...")
+            
+            client = OnLuyenAPIClient()
+            
+            # Load access_token từ file login
+            self.update_progress_safe(20, "Đang load access token...")
+            if not client.load_token_from_login_file():
+                self.log_message_safe("Không tìm thấy access token. Vui lòng login trước.", "error")
+                return
+            
+            # Thay đổi năm học
+            self.update_progress_safe(50, f"Đang gửi yêu cầu thay đổi năm {year}...")
+            result = client.change_year_v2(year)
+            
+            if result['success']:
+                self.update_progress_safe(90, "Thành công")
+                self.log_message_safe(f"✅ Đã thay đổi năm học sang {year} thành công!", "success")
+                
+                # Hiển thị thông tin token mới
+                self.root.after(0, self._log_current_school_year_info)
+                
+                self.update_progress_safe(100, "Hoàn thành")
+                
+                # Hiển thị thông báo thành công trong main thread
+                self.root.after(0, lambda: messagebox.showinfo("Thành công", 
+                                  f"Đã thay đổi năm học sang {year} thành công!\n\n"
+                                  f"Access token đã được cập nhật và lưu vào file login."))
+                
+            else:
+                error_msg = result.get('error', 'Unknown error')
+                if 'token' in error_msg.lower() or 'unauthorized' in error_msg.lower():
+                    self.log_message_safe("⚠️ Access token có thể đã hết hạn. Vui lòng login lại.", "warning")
+                    self.root.after(0, lambda: messagebox.showwarning("Cảnh báo", 
+                                         "Access token có thể đã hết hạn.\nVui lòng thực hiện login lại."))
+                else:
+                    self.log_message_safe(f"❌ Lỗi thay đổi năm học: {error_msg}", "error")
+                    self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Lỗi thay đổi năm học:\n{error_msg}"))
+                
+        except Exception as e:
+            self.log_message_safe(f"❌ Lỗi: {str(e)}", "error")
+            self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Có lỗi xảy ra:\n{str(e)}"))
+        finally:
+            self.is_processing = False
+
     def convert_json_to_excel(self):
         """Chuyển đổi JSON sang Excel"""
         # File dialog to select JSON file
@@ -941,10 +1173,235 @@ Ngày: 2025-07-29
         """Refresh UI"""
         self.log_message("Đang refresh UI...", "info")
         
+    def upload_files_to_drive(self, export_results):
+        """Upload file Excel to Google Drive"""
+        try:
+            self.log_message("Đang đẩy file Excel lên Google Drive...", "info")
+            
+            # Tạo thread riêng để upload
+            def upload_thread():
+                try:
+                    # Import and execute upload
+                    console_app = SchoolProcessApp()
+                    
+                    # Gọi hàm upload của console app (chỉ upload file Excel)
+                    upload_result = console_app.upload_to_drive(
+                        export_results.get('json_file_path', ''),
+                        export_results.get('excel_file_path', ''),
+                        export_results.get('drive_link', ''),
+                        export_results.get('school_name', '')
+                    )
+                    
+                    if upload_result.get('success', False):
+                        self.log_message_safe("✅ Đã đẩy file Excel lên Google Drive thành công!", "success")
+                        messagebox.showinfo("Thành công", "Đã đẩy file Excel lên Google Drive thành công!")
+                    else:
+                        error_msg = upload_result.get('error', 'Unknown error')
+                        self.log_message_safe(f"❌ Lỗi khi đẩy lên Drive: {error_msg}", "error")
+                        messagebox.showerror("Lỗi", f"Không thể đẩy lên Drive: {error_msg}")
+                        
+                except Exception as e:
+                    self.log_message_safe(f"❌ Lỗi upload: {str(e)}", "error")
+                    messagebox.showerror("Lỗi", f"Lỗi khi upload: {str(e)}")
+            
+            thread = threading.Thread(target=upload_thread)
+            thread.daemon = True
+            thread.start()
+            
+        except Exception as e:
+            self.log_message(f"Lỗi upload files: {str(e)}", "error")
+            messagebox.showerror("Lỗi", f"Lỗi upload: {str(e)}")
+    
     def run(self):
         """Chạy ứng dụng"""
         self.log_message("School Process Application đã khởi động", "success")
         self.root.mainloop()
+
+
+class ExportViewDialog:
+    """Dialog để xem và quản lý file export sau khi xử lý xong"""
+    
+    def __init__(self, parent, export_results):
+        """
+        Khởi tạo dialog
+        
+        Args:
+            parent: Cửa sổ cha
+            export_results: Dict chứa thông tin file export {
+                'json_file_path': str,
+                'excel_file_path': str,
+                'school_name': str,
+                'drive_link': str
+            }
+        """
+        self.parent = parent
+        self.export_results = export_results
+        self.result = None  # 'close', 'view', 'upload'
+        
+        self.setup_dialog()
+        
+    def setup_dialog(self):
+        """Thiết lập dialog"""
+        self.dialog = tk.Toplevel(self.parent.root)
+        self.dialog.title("Xem File Export")
+        self.dialog.geometry("500x350")
+        self.dialog.resizable(False, False)
+        
+        # Center dialog
+        self.center_dialog()
+        
+        # Make modal
+        self.dialog.transient(self.parent.root)
+        self.dialog.grab_set()
+        
+        self.setup_ui()
+        
+    def center_dialog(self):
+        """Căn giữa dialog"""
+        self.dialog.update_idletasks()
+        width = self.dialog.winfo_width()
+        height = self.dialog.winfo_height()
+        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
+        
+    def setup_ui(self):
+        """Thiết lập UI của dialog"""
+        # Main frame
+        main_frame = tk.Frame(self.dialog, padx=20, pady=20)
+        main_frame.pack(fill='both', expand=True)
+        
+        # Title
+        title_label = tk.Label(main_frame, 
+                              text="🎉 Xử lý dữ liệu hoàn thành!",
+                              font=('Segoe UI', 16, 'bold'),
+                              fg='#2E7D32')
+        title_label.pack(pady=(0, 20))
+        
+        # School info
+        school_name = self.export_results.get('school_name', 'N/A')
+        school_label = tk.Label(main_frame,
+                               text=f"Trường: {school_name}",
+                               font=('Segoe UI', 12, 'bold'))
+        school_label.pack(pady=(0, 15))
+        
+        # File info frame
+        info_frame = tk.Frame(main_frame)
+        info_frame.pack(fill='x', pady=(0, 20))
+        
+        # Files created
+        files_label = tk.Label(info_frame,
+                              text="Các file đã tạo:",
+                              font=('Segoe UI', 11, 'bold'))
+        files_label.pack(anchor='w')
+        
+        # JSON file
+        json_path = self.export_results.get('json_file_path', '')
+        if json_path:
+            json_name = os.path.basename(json_path)
+            json_label = tk.Label(info_frame,
+                                 text=f"📄 JSON: {json_name}",
+                                 font=('Segoe UI', 10))
+            json_label.pack(anchor='w', padx=(20, 0), pady=(5, 0))
+        
+        # Excel file
+        excel_path = self.export_results.get('excel_file_path', '')
+        if excel_path:
+            excel_name = os.path.basename(excel_path)
+            excel_label = tk.Label(info_frame,
+                                  text=f"📊 Excel: {excel_name}",
+                                  font=('Segoe UI', 10))
+            excel_label.pack(anchor='w', padx=(20, 0), pady=(2, 0))
+        
+        # Drive info
+        drive_link = self.export_results.get('drive_link', '')
+        if drive_link:
+            drive_label = tk.Label(info_frame,
+                                  text=f"📁 Thư mục Drive: {drive_link[:50]}...",
+                                  font=('Segoe UI', 10),
+                                  fg='#1976D2')
+            drive_label.pack(anchor='w', padx=(20, 0), pady=(5, 0))
+        
+        # Buttons frame
+        buttons_frame = tk.Frame(main_frame)
+        buttons_frame.pack(fill='x', pady=(20, 0))
+        
+        # Close button
+        btn_close = tk.Button(buttons_frame,
+                             text="Đóng",
+                             font=('Segoe UI', 11),
+                             bg='#757575',
+                             fg='white',
+                             padx=20,
+                             pady=8,
+                             command=self.close_dialog)
+        btn_close.pack(side='left', padx=(0, 10))
+        
+        # View file button
+        btn_view = tk.Button(buttons_frame,
+                            text="Xem File Export",
+                            font=('Segoe UI', 11),
+                            bg='#1976D2',
+                            fg='white',
+                            padx=20,
+                            pady=8,
+                            command=self.view_file)
+        btn_view.pack(side='left', padx=(0, 10))
+        
+        # Upload to drive button
+        btn_upload = tk.Button(buttons_frame,
+                              text="Đẩy lên Driver",
+                              font=('Segoe UI', 11),
+                              bg='#388E3C',
+                              fg='white',
+                              padx=20,
+                              pady=8,
+                              command=self.upload_to_drive)
+        btn_upload.pack(side='right')
+        
+    def close_dialog(self):
+        """Đóng dialog"""
+        self.result = 'close'
+        self.dialog.destroy()
+        
+    def view_file(self):
+        """Xem file export"""
+        self.result = 'view'
+        excel_path = self.export_results.get('excel_file_path', '')
+        
+        if excel_path and os.path.exists(excel_path):
+            try:
+                # Mở file Excel
+                if platform.system() == 'Windows':
+                    os.startfile(excel_path)
+                elif platform.system() == 'Darwin':  # macOS
+                    subprocess.run(['open', excel_path])
+                else:  # Linux
+                    subprocess.run(['xdg-open', excel_path])
+                    
+                messagebox.showinfo("Thành công", "Đã mở file Excel!")
+            except Exception as e:
+                messagebox.showerror("Lỗi", f"Không thể mở file: {str(e)}")
+                print(f"Debug - Lỗi mở file: {e}")
+                print(f"Debug - File path: {excel_path}")
+                print(f"Debug - File exists: {os.path.exists(excel_path)}")
+        else:
+            error_msg = f"Không tìm thấy file Excel!\nĐường dẫn: {excel_path}\nFile tồn tại: {os.path.exists(excel_path) if excel_path else 'N/A'}"
+            messagebox.showerror("Lỗi", error_msg)
+            print(f"Debug - Export results: {self.export_results}")
+            
+    def upload_to_drive(self):
+        """Đẩy file lên Google Drive"""
+        self.result = 'upload'
+        self.dialog.destroy()
+        
+        # Gọi hàm upload của parent
+        self.parent.upload_files_to_drive(self.export_results)
+        
+    def show(self):
+        """Hiển thị dialog và chờ kết quả"""
+        self.dialog.wait_window()
+        return self.result
 
 
 def main():
