@@ -117,7 +117,7 @@ SchoolProcess/
 4. **Cấu hình môi trường:**
    - Thêm file `.env`
    - Cập nhật các thông tin cấu hình cần thiết
-   - Đặt file `service_account.json` vào thư mục `config/`
+   - Đặt file `service_account.json` và `oauth_credentials.json` vào thư mục `config/`
 
 ## 🎨 Giao diện người dùng (UI)
 

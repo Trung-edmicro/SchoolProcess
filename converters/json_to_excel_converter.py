@@ -273,12 +273,10 @@ class JSONToExcelTemplateConverter:
         try:
             admin_sheet = workbook['ADMIN']
             
-            print(f"🔍 DEBUG: Template structure analysis...")
             # Phân tích merged cells hiện có
             merged_ranges = []
             if admin_sheet.merged_cells:
                 merged_ranges = list(admin_sheet.merged_cells.ranges)
-                print(f"   📋 Merged cells found: {[str(r) for r in merged_ranges]}")
             
             # GIỮ NGUYÊN merged cells - KHÔNG unmerge
             # Chỉ cập nhật nội dung các ô merged chính
@@ -287,7 +285,6 @@ class JSONToExcelTemplateConverter:
             admin_sheet['A1'] = f"{self.school_name}"
             admin_sheet['A1'].font = Font(bold=True, size=14, name='Calibri')
             admin_sheet['A1'].alignment = self.center_alignment
-            print(f"   ✅ A1 (merged A1:D1): Tên trường")
             
             # 2. Headers đã có sẵn trong template: C2="Tài khoản", D2="Mật khẩu lần đầu"
             # Chỉ format lại headers nếu cần
@@ -298,7 +295,6 @@ class JSONToExcelTemplateConverter:
                 if admin_sheet['D2'].value:
                     admin_sheet['D2'].font = self.header_font
                     admin_sheet['D2'].alignment = self.center_alignment
-                print(f"   ✅ Headers C2, D2: Đã format")
             except:
                 pass
             
@@ -315,9 +311,7 @@ class JSONToExcelTemplateConverter:
                     cell.alignment = self.left_alignment
                 else:  # Mật khẩu center align
                     cell.alignment = self.center_alignment
-            
-            print(f"   ✅ Row 3 (Admin): A3:B3=merged, C3={self.admin_email}, D3=***")
-            
+                        
             # 4. HT/HP data từ JSON
             ht_hp_info = self.json_data.get('ht_hp_info', {})
             ht_list = ht_hp_info.get('ht', [])
@@ -331,7 +325,6 @@ class JSONToExcelTemplateConverter:
                 # Kiểm tra nếu B4 không nằm trong merged cell thì mới điền tên
                 try:
                     admin_sheet['B4'] = ht.get('displayName', '')  # Tên HT vào cột B4
-                    print(f"   ✅ B4: Điền tên HT = {ht.get('displayName', '')}")
                 except:
                     print(f"   ⚠️ B4: Bị merged, skip điền tên HT")
                 
@@ -355,7 +348,6 @@ class JSONToExcelTemplateConverter:
                     pass
                 
                 accounts_filled += 1
-                print(f"   ✅ Row 4 (Hiệu Trưởng): C4={ht.get('userName', '')}, D4=***")
                 
                 if len(ht_list) > 1:
                     print(f"   ⚠️ Template chỉ hỗ trợ 1 HT, có {len(ht_list)} HT")
@@ -375,9 +367,7 @@ class JSONToExcelTemplateConverter:
                     if 'A7' in str(merged_range) or any(f'{chr(65+i)}7' in str(merged_range) for i in range(4)):
                         row7_backup['merged_cell_range'] = str(merged_range)
                         break
-                
-                print(f"   🔒 Backup row 7: A7='{row7_backup['A7']}', merged='{row7_backup['merged_cell_range']}'")
-                
+                                
                 # Xử lý HP đầu tiên vào row 5 (có sẵn trong template)
                 first_hp = hp_list[0]
                 admin_sheet['B5'] = first_hp.get('displayName', '')
@@ -400,7 +390,6 @@ class JSONToExcelTemplateConverter:
                     pass
                 
                 accounts_filled += 1
-                print(f"   ✅ Row 5 (Hiệu Phó 1): B5={first_hp.get('displayName', '')}, C5={first_hp.get('userName', '')}, D5=***")
                 
                 # Xử lý các HP còn lại - INSERT từ row 6 trở đi
                 for idx in range(1, len(hp_list)):
@@ -409,7 +398,6 @@ class JSONToExcelTemplateConverter:
                     
                     # Insert row mới
                     admin_sheet.insert_rows(insert_position)
-                    print(f"   ➕ Insert row {insert_position} cho HP thứ {idx + 1}")
                     
                     # Điền data cho row mới
                     admin_sheet[f'A{insert_position}'] = "Hiệu Phó"
@@ -435,22 +423,18 @@ class JSONToExcelTemplateConverter:
                     
                     # Set row height đồng bộ với các row khác (20)
                     admin_sheet.row_dimensions[insert_position].height = 20
-                    print(f"   📏 Set row {insert_position} height = 20")
                     
                     accounts_filled += 1
-                    print(f"   ✅ Row {insert_position} (Hiệu Phó {idx + 1}): B{insert_position}={hp.get('displayName', '')}, C{insert_position}={hp.get('userName', '')}, D{insert_position}=***")
                 
                 # QUAN TRỌNG: Reset row height của dòng 7 cũ (bây giờ trống) về bình thường
                 try:
                     admin_sheet.row_dimensions[7].height = 20
-                    print(f"   📏 Reset row 7 height = 20 (dòng cũ đã trống)")
                 except:
                     pass
                 
                 # RESTORE row 7 content nếu bị mất
                 current_row7_value = admin_sheet['A7'].value
                 if not current_row7_value and row7_backup['A7']:
-                    print(f"   🔧 Row 7 bị mất content, đang restore...")
                     # Tìm vị trí mới của row 7 (có thể đã shift)
                     target_row = 7 + len(hp_list) - 1  # Row 7 gốc + số HP insert
                     
@@ -472,11 +456,9 @@ class JSONToExcelTemplateConverter:
                         
                         for range_to_remove in ranges_to_remove:
                             admin_sheet.unmerge_cells(str(range_to_remove))
-                            print(f"   🔧 Unmerged old range: {range_to_remove}")
                         
                         # Merge cells mới cho "Lưu ý"
                         admin_sheet.merge_cells(target_range)
-                        print(f"   ✅ Merged cells: {target_range}")
                         
                         # Format merged cell với wrap text và row height hợp lý
                         target_cell = admin_sheet[f'A{target_row}']
@@ -492,7 +474,6 @@ class JSONToExcelTemplateConverter:
                     except Exception as merge_error:
                         print(f"   ⚠️ Lỗi merge cells: {merge_error}")
                     
-                    print(f"   ✅ Restored row {target_row} with merged cells: '{row7_backup['A7'][:50]}...'")
                 else:
                     print(f"   ✅ Row 7 content vẫn còn nguyên: '{current_row7_value[:50] if current_row7_value else 'Empty'}...'")
                 

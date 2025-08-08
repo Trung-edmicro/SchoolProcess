@@ -3,6 +3,9 @@ UI Module for School Process Application
 """
 
 from .main_window import SchoolProcessMainWindow
+
+# Alias để compatibility với app.py
+MainWindow = SchoolProcessMainWindow
 from .components import (
     StatusIndicator, 
     ProgressCard, 
@@ -14,6 +17,7 @@ from .components import (
 
 __all__ = [
     'SchoolProcessMainWindow',
+    'MainWindow',  # Alias
     'StatusIndicator',
     'ProgressCard', 
     'LogViewer',

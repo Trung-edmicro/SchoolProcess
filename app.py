@@ -123,11 +123,10 @@ class SchoolProcessApp:
         run_menu_loop("ONLUYEN API INTEGRATION", options, handlers)
     
     def onluyen_get_teachers(self):
-        """Lấy danh sách giáo viên"""
+        """Lấy danh sách giáo viên với auto-authentication"""
         print_separator("LẤY DANH SÁCH GIÁO VIÊN")
         
         try:
-            
             # Hỏi page size với default lớn hơn
             page_size = get_user_input("Nhập page size (Enter = 1000)") or "1000"
             try:
@@ -135,12 +134,22 @@ class SchoolProcessApp:
             except ValueError:
                 page_size = 1000
             
+            # Khởi tạo client và auto-authenticate
             client = OnLuyenAPIClient()
             
-            # Kiểm tra có cần login không
-            if self._check_onluyen_auth_required(client):
+            # Thử load token từ file login với auto-detect school year
+            current_school_year = self._get_current_school_year_from_login_file()
+            if not current_school_year:
+                current_school_year = 2025  # Default
+            
+            print_status(f"🔍 Thử sử dụng token cho năm học {current_school_year}...", "info")
+            
+            if not client.load_token_from_login_file(school_year=current_school_year):
+                print_status("❌ Không tìm thấy token hợp lệ. Vui lòng sử dụng workflow hoàn chỉnh để login trước.", "error")
+                print("💡 Hãy sử dụng 'Case 1' hoặc 'Case 2' để tự động login và lấy dữ liệu.")
                 return
             
+            print_status(f"✅ Đã load token cho năm {current_school_year}", "success")
             print_status(f"Đang lấy danh sách giáo viên (page size: {page_size})...", "info")
             
             result = client.get_teachers(page_size=page_size)
@@ -206,11 +215,10 @@ class SchoolProcessApp:
             print_status(f"Lỗi lấy danh sách giáo viên: {e}", "error")
     
     def onluyen_get_students(self):
-        """Lấy danh sách học sinh"""
+        """Lấy danh sách học sinh với auto-authentication"""
         print_separator("LẤY DANH SÁCH HỌC SINH")
         
         try:
-            
             # Hỏi page index và page size với default lớn hơn
             page_index = get_user_input("Nhập page index (Enter = 1)") or "1"
             page_size = get_user_input("Nhập page size (Enter = 5000)") or "5000"
@@ -222,12 +230,22 @@ class SchoolProcessApp:
                 page_index = 1
                 page_size = 5000
             
+            # Khởi tạo client và auto-authenticate
             client = OnLuyenAPIClient()
             
-            # Kiểm tra có cần login không
-            if self._check_onluyen_auth_required(client):
+            # Thử load token từ file login với auto-detect school year
+            current_school_year = self._get_current_school_year_from_login_file()
+            if not current_school_year:
+                current_school_year = 2025  # Default
+            
+            print_status(f"🔍 Thử sử dụng token cho năm học {current_school_year}...", "info")
+            
+            if not client.load_token_from_login_file(school_year=current_school_year):
+                print_status("❌ Không tìm thấy token hợp lệ. Vui lòng sử dụng workflow hoàn chỉnh để login trước.", "error")
+                print("💡 Hãy sử dụng 'Case 1' hoặc 'Case 2' để tự động login và lấy dữ liệu.")
                 return
             
+            print_status(f"✅ Đã load token cho năm {current_school_year}", "success")
             print_status(f"Đang lấy danh sách học sinh (page {page_index}, size: {page_size})...", "info")
             
             result = client.get_students(page_index=page_index, page_size=page_size)
@@ -295,61 +313,6 @@ class SchoolProcessApp:
         except Exception as e:
             print_status(f"Lỗi lấy danh sách học sinh: {e}", "error")
     
-    def onluyen_configure_credentials(self):
-        """Cấu hình credentials OnLuyen"""
-        print_separator("CẤU HÌNH ONLUYEN CREDENTIALS")
-        
-        print("📋 Cấu hình này sẽ cập nhật file .env")
-        print("⚠️  Lưu ý: Credentials sẽ được lưu dưới dạng plain text")
-        
-        if not get_user_confirmation("Tiếp tục cấu hình credentials?"):
-            return
-        
-        username = get_user_input("Nhập OnLuyen username", required=True)
-        if not username:
-            return
-        
-        password = get_user_input("Nhập OnLuyen password", required=True)
-        if not password:
-            return
-        
-        try:
-            # Cập nhật .env file
-            env_file = Path(".env")
-            if env_file.exists():
-                with open(env_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # Update username
-                if "ONLUYEN_USERNAME=" in content:
-                    content = content.replace(
-                        f"ONLUYEN_USERNAME=",
-                        f"ONLUYEN_USERNAME={username}"
-                    )
-                else:
-                    content += f"\nONLUYEN_USERNAME={username}"
-                
-                # Update password
-                if "ONLUYEN_PASSWORD=" in content:
-                    content = content.replace(
-                        f"ONLUYEN_PASSWORD=",
-                        f"ONLUYEN_PASSWORD={password}"
-                    )
-                else:
-                    content += f"\nONLUYEN_PASSWORD={password}"
-                
-                with open(env_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                
-                print_status("Đã cập nhật credentials vào .env", "success")
-                print("🔄 Khởi động lại ứng dụng để áp dụng thay đổi")
-                
-            else:
-                print_status("File .env không tồn tại", "error")
-                
-        except Exception as e:
-            print_status(f"Lỗi cập nhật credentials: {e}", "error")
-    
     def _check_onluyen_auth_required(self, client) -> bool:
         """
         Kiểm tra có cần authentication không
@@ -365,168 +328,6 @@ class SchoolProcessApp:
             print("💡 Hãy sử dụng workflow hoàn chỉnh để tự động login.")
             return True
         return False
-    
-    def onluyen_integrated_processing(self):
-        """Xử lý tích hợp: Google Sheets → OnLuyen API Login"""
-        print_separator("XỬ LÝ TÍCH HỢP: GOOGLE SHEETS → ONLUYEN API")
-        
-        try:
-            # Bước 1: Trích xuất dữ liệu từ Google Sheets
-            print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
-            
-            extractor = GoogleSheetsExtractor()
-            
-            # Lấy tên sheet với logic fallback
-            sheet_name = self._get_sheet_name_with_fallback(extractor)
-            if not sheet_name:
-                print_status("❌ Không thể xác định tên sheet", "error")
-                return
-            
-            print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
-            school_data = extractor.extract_school_data(sheet_name=sheet_name)
-            
-            if not school_data:
-                print_status("Không thể trích xuất dữ liệu từ Google Sheets", "error")
-                return
-            
-            print_status(f"✅ Đã trích xuất {len(school_data)} trường học", "success")
-            
-            # Hiển thị danh sách trường để chọn
-            if len(school_data) > 1:
-                print("\nDanh sách trường đã trích xuất:")
-                for i, school in enumerate(school_data, 1):
-                    school_name = school.get('Tên trường', 'N/A')
-                    admin_email = school.get('Admin', 'N/A')
-                    print(f"{i}. {school_name} (Admin: {admin_email})")
-            
-            # Chọn trường để xử lý
-            if len(school_data) == 1:
-                selected_school = school_data[0]
-            else:
-                try:
-                    choice = get_user_input(f"Chọn trường để xử lý (1-{len(school_data)})", required=True)
-                    choice_idx = int(choice) - 1
-                    if 0 <= choice_idx < len(school_data):
-                        selected_school = school_data[choice_idx]
-                    else:
-                        print_status("Lựa chọn không hợp lệ", "error")
-                        return
-                except (ValueError, TypeError):
-                    print_status("Lựa chọn không hợp lệ", "error")
-                    return
-            
-            # Bước 2: Lấy thông tin login
-            print_status("BƯỚC 2: Chuẩn bị thông tin login", "info")
-            
-            school_name = selected_school.get('Tên trường', 'N/A')
-            admin_email = selected_school.get('Admin', '')
-            password = selected_school.get('Mật khẩu', '')
-            drive_link = selected_school.get('Link driver dữ liệu', 'N/A')
-            
-            if not admin_email or not password:
-                missing_fields = []
-                if not admin_email:
-                    missing_fields.append("Admin email")
-                if not password:
-                    missing_fields.append("Mật khẩu")
-                
-                print_status(f"Thiếu thông tin cần thiết: {', '.join(missing_fields)}", "error")
-                return
-            
-            # Bước 3: Login vào OnLuyen API
-            print_status("BƯỚC 3: Thực hiện login OnLuyen API", "info")
-            
-            client = OnLuyenAPIClient()
-            print_status(f"Đang login với Admin: {admin_email}", "info")
-            
-            result = client.login(admin_email, password)
-            
-            # Bước 4: Log response và kết quả
-            print_status("BƯỚC 4: Phân tích kết quả login", "info")
-            
-            print(f"\nTrường: {school_name}")
-            print(f"Admin: {admin_email}")
-            print(f"Success: {result['success']}")
-            
-            if result['success']:
-                print_status("LOGIN THÀNH CÔNG!", "success")
-                
-                if result.get('data'):
-                    response_data = result['data']
-                    self._log_login_response(response_data)
-                    
-                    # Bước 4.1: Kiểm tra tài khoản đăng nhập có khớp không
-                    response_email = response_data.get('account', '').lower().strip()
-                    expected_email = admin_email.lower().strip()
-                    
-                    if response_email == expected_email:
-                        print_status("✅ Tài khoản đăng nhập trùng khớp!", "success")
-                        
-                        # Lưu thông tin thành công
-                        self._save_successful_login_info(school_name, admin_email, result, drive_link, password)
-                        
-                        # Cập nhật tóm tắt
-                        account_match = True
-                    else:
-                        print_status("❌ Tài khoản đăng nhập chưa trùng khớp!", "error")
-                        print(f"   🚨 Có thể đây là tài khoản khác hoặc dữ liệu không đồng bộ")
-                        
-                        # Đăng xuất
-                        print_status("ĐANG THỰC HIỆN ĐĂNG XUẤT...", "warning")
-                        logout_result = self._logout_onluyen_api(client)
-                        
-                        if logout_result:
-                            print_status("✅ Đã đăng xuất thành công", "success")
-                        else:
-                            print_status("⚠️ Không thể đăng xuất hoặc đã đăng xuất", "warning")
-                        
-                        # Cập nhật tóm tắt
-                        account_match = False
-                        
-                else:
-                    print("   ⚠️  Không có dữ liệu response")
-                    account_match = False
-                    
-            else:
-                print_status("❌ LOGIN THẤT BẠI!", "error")
-                print(f"\n🚨 LỖI: {result.get('error', 'Unknown error')}")
-                
-                # Log chi tiết lỗi
-                self._log_login_error(school_name, admin_email, result)
-                account_match = False
-            
-            print(f"\n📊 TÓM TẮT XỬ LÝ:")
-            print("=" * 60)
-            print(f"✅ Trích xuất Google Sheets: Thành công")
-            print(f"✅ Chuẩn bị thông tin: Thành công")
-            print(f"{'✅' if result['success'] else '❌'} OnLuyen API Login: {'Thành công' if result['success'] else 'Thất bại'}")
-            if result['success']:
-                print(f"{'✅' if account_match else '❌'} Kiểm tra tài khoản: {'Trùng khớp' if account_match else 'Không trùng khớp'}")
-                if not account_match:
-                    print(f"🚨 TÀI KHOẢN ĐĂNG NHẬP CHƯA TRÙNG KHỚP - ĐÃ ĐĂNG XUẤT")
-            
-        except ImportError as e:
-            print_status(f"Module không tồn tại: {e}", "error")
-        except Exception as e:
-            print_status(f"Lỗi xử lý tích hợp: {e}", "error")
-    
-    def _logout_onluyen_api(self, client):
-        """Đăng xuất OnLuyen API"""
-        try:
-            # Clear token từ client
-            if hasattr(client, 'auth_token'):
-                client.auth_token = None
-            
-            # Remove Authorization header
-            if 'Authorization' in client.session.headers:
-                del client.session.headers['Authorization']
-            
-            print("   🔓 Đã xóa token khỏi session")
-            return True
-            
-        except Exception as e:
-            print(f"   ⚠️ Lỗi khi đăng xuất: {e}")
-            return False
     
     def _log_login_response(self, response_data):
         """Log chi tiết response data"""
@@ -559,127 +360,86 @@ class SchoolProcessApp:
         for key, value in error_info.items():
             print(f"   {key}: {value}")
     
-    def _save_successful_login_info(self, school_name, admin_email, result, drive_link, password=None):
-        """Lưu thông tin login thành công bao gồm tokens và password"""
+    def _save_successful_login_info(self, school_name, admin_email, result, drive_link, password=None, school_year=2025):
+        """Lưu thông tin login thành công với hỗ trợ multi-year tokens"""
         try:
+            # File name cố định theo admin_email
+            filename = f"onluyen_login_{admin_email.replace('@', '_').replace('.', '_')}.json"
+            filepath = f"data/output/{filename}"
             
             # Lấy data từ response
             response_data = result.get('data', {})
             
+            # Tạo token info cho năm học hiện tại
+            current_year_token = {
+                'access_token': response_data.get('access_token'),
+                'refresh_token': response_data.get('refresh_token'),
+                'expires_in': response_data.get('expires_in'),
+                'expires_at': response_data.get('expires_at'),
+                'user_id': response_data.get('userId'),
+                'display_name': response_data.get('display_name'),
+                'account': response_data.get('account'),
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # Load existing data nếu có
+            existing_data = {}
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                except Exception as e:
+                    print_status(f"⚠️ Không thể đọc file existing: {e}", "warning")
+                    existing_data = {}
+            
+            # Cấu trúc mới với multi-year support
             login_info = {
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'school_name': school_name,
                 'admin_email': admin_email,
-                'admin_password': password,  # Thêm password cho export
+                'admin_password': password,
                 'drive_link': drive_link,
                 'login_status': 'success',
-                'status_code': result.get('status_code'),
-                'response_keys': list(response_data.keys()) if response_data else [],
-                # Thêm tokens để có thể sử dụng lại
-                'tokens': {
-                    'access_token': response_data.get('access_token'),
-                    'refresh_token': response_data.get('refresh_token'),
-                    'expires_in': response_data.get('expires_in'),
-                    'expires_at': response_data.get('expires_at'),
-                    'user_id': response_data.get('userId'),
-                    'display_name': response_data.get('display_name'),
-                    'account': response_data.get('account')
+                'current_school_year': school_year,  # Năm học hiện tại
+                'tokens_by_year': existing_data.get('tokens_by_year', {}),  # Giữ lại tokens cũ
+                'last_login': {
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'school_year': school_year,
+                    'status_code': result.get('status_code'),
+                    'response_keys': list(response_data.keys()) if response_data else []
                 }
             }
             
-            filename = f"onluyen_login_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            filepath = f"data/output/{filename}"
+            # Cập nhật token cho năm học hiện tại
+            login_info['tokens_by_year'][str(school_year)] = current_year_token
             
+            # Ghi file
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(login_info, f, ensure_ascii=False, indent=2)
             
             print_status(f"✅ Đã lưu thông tin login vào: {filepath}", "success")
+            print_status(f"📅 Token cho năm học {school_year} đã được cập nhật", "info")
             
         except Exception as e:
             print_status(f"Lỗi lưu thông tin login: {e}", "warning")
     
-    def onluyen_complete_workflow(self):
-        """Tích hợp hoàn chỉnh: Sheets → Login → Lấy dữ liệu GV/HS → Chuyển đổi Excel"""
-        print_separator("HOÀN CHỈNH: SHEETS → LOGIN → DỮ LIỆU → EXCEL")
-        
-        print("🔄 CHỌN LUỒNG XỬ LÝ:")
-        print("   📋 Case 1: Xuất toàn bộ dữ liệu")
-        print("   📋 Case 2: Xuất dữ liệu theo file import (có so sánh)")
-        print()
-        
-        # Menu chọn case
-        case_options = [
-            "Case 1: Toàn bộ dữ liệu (Sheets → Login → Dữ liệu → Excel)",
-            "Case 2: Dữ liệu theo file import (Sheets → Login → Dữ liệu → So sánh → Excel)"
-        ]
-        
-        case_handlers = [
-            self._workflow_case_1_full_data,
-            self._workflow_case_2_import_filtered
-        ]
-        
-        run_menu_loop("CHỌN LUỒNG XỬ LÝ", case_options, case_handlers)
-    
     def _workflow_case_1_full_data(self):
-        """Case 1: Luồng xử lý toàn bộ dữ liệu"""
-        print_separator("CASE 1: TOÀN BỘ DỮ LIỆU")
-        
-        print("🔄 LUỒNG XỬ LÝ HOÀN CHỈNH:")
-        print("   1️⃣  Trích xuất dữ liệu từ Google Sheets")
-        print("   2️⃣  Login vào OnLuyen API") 
-        print("   3️⃣  Lấy danh sách Giáo viên")
-        print("   4️⃣  Lấy danh sách Học sinh")
-        print("   5️⃣  Lưu dữ liệu workflow JSON")
-        print("   6️⃣  Chuyển đổi JSON → Excel")
-        print("   7️⃣  Upload files lên Google Drive (OAuth 2.0)")
-        print("       📁 Sử dụng text value từ cột 'Link driver dữ liệu' trong Google Sheets")
-        print("   8️⃣  Tổng hợp và báo cáo kết quả")
-        print()
-        print("💡 Lưu ý: ")
-        print("   • Drive link được lấy từ text value của cột 'Link driver dữ liệu' (không extract hyperlink)")
-        print("   • Đảm bảo cột 'Link driver dữ liệu' chứa URL đầy đủ dạng text")
-        print("   • Nếu chỉ muốn lấy dữ liệu riêng lẻ, hãy chọn chức năng 2 hoặc 3 trong menu")
-        print()
-        
         self._execute_workflow_case_1()
     
     def _workflow_case_2_import_filtered(self):
-        """Case 2: Luồng xử lý dữ liệu theo file import"""
-        print_separator("CASE 2: DỮ LIỆU THEO FILE IMPORT")
-        
-        print("🔄 LUỒNG XỬ LÝ VỚI SO SÁNH:")
-        print("   1️⃣  Trích xuất dữ liệu từ Google Sheets")
-        print("   2️⃣  Login vào OnLuyen API") 
-        print("   3️⃣  Lấy danh sách Giáo viên")
-        print("   4️⃣  Lấy danh sách Học sinh")
-        print("   5️⃣  Tải file import từ Google Drive")
-        print("       📁 Tìm file có cấu trúc tên 'import_[Tên trường]'")
-        print("   6️⃣  So sánh và lọc dữ liệu")
-        print("       🔍 Chỉ giữ lại dữ liệu có trong file import")
-        print("   7️⃣  Lưu dữ liệu đã lọc workflow JSON")
-        print("   8️⃣  Chuyển đổi JSON → Excel")
-        print("   9️⃣  Upload files lên Google Drive (OAuth 2.0)")
-        print("   🔟 Tổng hợp và báo cáo kết quả")
-        print()
-        print("💡 Lưu ý: ")
-        print("   • File import phải có tên bắt đầu bằng 'import_' và kết thúc bằng '.xlsx'")
-        print("   • Ví dụ: import_data.xlsx, import_truong_abc.xlsx")
-        print("   • File import phải nằm trong Drive folder từ 'Link driver dữ liệu'")
-
-        print("   • File phải chứa danh sách email/username cần so sánh")
-        print("   • Nếu có nhiều file import_, hệ thống sẽ cho bạn chọn")
-        print()
         self._execute_workflow_case_2()
 
-    def _get_authenticated_client(self, admin_email=None, password=None, ui_mode=False) -> tuple:
+    def _get_authenticated_client(self, admin_email=None, password=None, school_year=None, ui_mode=False) -> tuple:
         """
-        Lấy OnLuyenAPIClient đã được xác thực
-        - Ưu tiên sử dụng access_token từ file login nếu email khớp với trường hiện tại
+        Lấy OnLuyenAPIClient đã được xác thực với hỗ trợ multi-year tokens
+        - Ưu tiên sử dụng access_token từ file login theo năm học cụ thể
         - Nếu token không thuộc trường hiện tại hoặc hết hạn, thực hiện login lại
+        - Tự động detect năm học từ UI state hoặc file login
         
         Args:
             admin_email (str, optional): Email admin để login nếu cần
             password (str, optional): Password để login nếu cần
+            school_year (int, optional): Năm học cần token (2024/2025). Nếu None, auto-detect
             ui_mode (bool): Có phải chế độ UI không
             
         Returns:
@@ -687,11 +447,27 @@ class SchoolProcessApp:
         """
         client = OnLuyenAPIClient()
         
-        # Bước 1: Thử load token từ file login (từ chức năng chuyển năm học)
-        print_status("🔍 Kiểm tra access token từ file login...", "info")
+        # Auto-detect school year nếu không được cung cấp
+        if school_year is None:
+            # Thử lấy từ UI state nếu có (từ main_window current_year)
+            try:
+                from ui import MainWindow
+                if hasattr(MainWindow, '_instance') and MainWindow._instance:
+                    school_year = getattr(MainWindow._instance, 'current_year', 2025)
+                    print_status(f"🎯 Detected school year from UI: {school_year}", "info")
+                else:
+                    school_year = 2025  # Default
+                    print_status(f"🎯 Using default school year: {school_year}", "info")
+            except:
+                # Fallback: đọc từ file login hoặc default
+                school_year = self._get_current_school_year_from_login_file(admin_email) or 2025
+                print_status(f"🎯 Auto-detected school year: {school_year}", "info")
         
-        if client.load_token_from_login_file():
-            print_status("✅ Đã load access token từ file login", "success")
+        # Bước 1: Thử load token từ file login theo năm học cụ thể
+        print_status(f"🔍 Kiểm tra access token cho năm học {school_year}...", "info")
+        
+        if client.load_token_from_login_file(admin_email, school_year):
+            print_status(f"✅ Đã load access token cho năm {school_year}", "success")
             
             # Kiểm tra email trong token có khớp với trường hiện tại không
             if admin_email:
@@ -716,7 +492,7 @@ class SchoolProcessApp:
                             # Hiển thị thông tin năm học hiện tại
                             client.print_current_school_year_info()
                             
-                            return client, True, {"success": True, "data": {"source": "login_file"}}
+                            return client, True, {"success": True, "data": {"source": "login_file", "school_year": school_year}}
                         else:
                             print_status("⚠️ Access token không hợp lệ hoặc đã hết hạn", "warning")
                 else:
@@ -729,43 +505,189 @@ class SchoolProcessApp:
                 if test_result['success']:
                     print_status("✅ Access token hợp lệ, sử dụng token hiện có", "success")
                     client.print_current_school_year_info()
-                    return client, True, {"success": True, "data": {"source": "login_file"}}
+                    return client, True, {"success": True, "data": {"source": "login_file", "school_year": school_year}}
                 else:
                     print_status("⚠️ Access token không hợp lệ hoặc đã hết hạn", "warning")
         else:
-            print_status("⚠️ Không tìm thấy access token trong file login", "warning")
+            print_status(f"⚠️ Không tìm thấy access token cho năm {school_year}", "warning")
         
-        # Bước 2: Nếu không có token hợp lệ, thực hiện login
+        # Bước 2: Nếu không có token hợp lệ, sử dụng ensure_valid_token
         if not admin_email or not password:
             print_status("❌ Cần thông tin đăng nhập để tạo token mới", "error")
             return client, False, {"success": False, "error": "Thiếu thông tin đăng nhập"}
         
-        print_status("🔐 Thực hiện login để lấy token mới...", "info")
-        print_status(f"Đang login với Admin: {admin_email}", "info")
+        print_status(f"🔐 Thực hiện ensure_valid_token cho năm {school_year}...", "info")
         
-        login_result = client.login(admin_email, password)
+        if client.ensure_valid_token(admin_email, password, school_year):
+            print_status(f"✅ Đã đảm bảo token hợp lệ cho năm {school_year}", "success")
+            
+            # Hiển thị thông tin năm học sau khi có token
+            client.print_current_school_year_info()
+            
+            return client, True, {"success": True, "data": {"source": "ensure_valid_token", "school_year": school_year}}
+        else:
+            print_status(f"❌ Không thể lấy token hợp lệ cho năm {school_year}", "error")
+            return client, False, {"success": False, "error": f"Không thể xác thực cho năm {school_year}"}
+
+    def _get_current_school_year_from_login_file(self, admin_email=None):
+        """
+        Lấy năm học hiện tại từ file login
         
-        if not login_result['success']:
-            print_status(f"❌ Login thất bại: {login_result.get('error', 'Unknown error')}", "error")
-            return client, False, login_result
+        Args:
+            admin_email (str, optional): Email admin để tìm file cụ thể
+            
+        Returns:
+            int: Năm học hiện tại hoặc None
+        """
+        try:
+            client = OnLuyenAPIClient()
+            
+            # Tìm file login
+            if admin_email:
+                filename = f"onluyen_login_{admin_email.replace('@', '_').replace('.', '_')}.json"
+                login_file_path = f"data/output/{filename}"
+                
+                if not os.path.exists(login_file_path):
+                    return None
+            else:
+                login_file_path = client._find_latest_login_file()
+                if not login_file_path:
+                    return None
+            
+            # Đọc file login
+            with open(login_file_path, 'r', encoding='utf-8') as f:
+                login_data = json.load(f)
+            
+            return login_data.get('current_school_year', 2025)
+            
+        except Exception as e:
+            print_status(f"⚠️ Lỗi đọc năm học từ file login: {e}", "warning")
+            return None
+
+    def _check_existing_school_login_data(self, admin_email, school_year=2025):
+        """
+        Kiểm tra xem có dữ liệu JSON login cho trường này hay không
         
-        # Kiểm tra tài khoản trùng khớp
-        response_data = login_result.get('data', {})
-        response_email = response_data.get('account', '').lower().strip()
-        expected_email = admin_email.lower().strip()
+        Args:
+            admin_email (str): Email admin của trường
+            school_year (int): Năm học cần kiểm tra
+            
+        Returns:
+            tuple: (has_data, login_file_path, token_valid)
+        """
+        try:
+            # Tạo tên file login theo admin_email
+            filename = f"onluyen_login_{admin_email.replace('@', '_').replace('.', '_')}.json"
+            login_file_path = f"data/output/{filename}"
+            
+            if not os.path.exists(login_file_path):
+                return False, None, False
+            
+            # Đọc file login
+            with open(login_file_path, 'r', encoding='utf-8') as f:
+                login_data = json.load(f)
+            
+            # Kiểm tra có token cho năm học này không
+            tokens_by_year = login_data.get('tokens_by_year', {})
+            year_token = tokens_by_year.get(str(school_year))
+            
+            if not year_token or not year_token.get('access_token'):
+                return True, login_file_path, False  # Có file nhưng không có token hợp lệ
+            
+            # Kiểm tra tính hợp lệ của token (basic check)
+            access_token = year_token.get('access_token')
+            if access_token:
+                # Có token, coi như valid (sẽ được validate kỹ hơn khi sử dụng)
+                return True, login_file_path, True
+            
+            return True, login_file_path, False
+            
+        except Exception as e:
+            print_status(f"⚠️ Lỗi kiểm tra dữ liệu login: {e}", "warning")
+            return False, None, False
+
+    def _ensure_authenticated_client_for_year(self, admin_email, password, school_name, drive_link, current_school_year, ui_mode=False):
+        """
+        Đảm bảo có OnLuyenAPIClient với token hợp lệ cho năm học cụ thể
         
-        if response_email != expected_email:
-            print_status("❌ Tài khoản đăng nhập không trùng khớp!", "error")
-            print(f"   Expected: {expected_email}")
-            print(f"   Got: {response_email}")
-            return client, False, {"success": False, "error": "Tài khoản không trùng khớp"}
+        Args:
+            admin_email (str): Email admin
+            password (str): Password
+            school_name (str): Tên trường
+            drive_link (str): Drive link
+            current_school_year (int): Năm học cần token
+            ui_mode (bool): Có phải UI mode
+            
+        Returns:
+            tuple: (client, success, actual_year)
+        """
+        # Kiểm tra xem có dữ liệu JSON cho trường này chưa
+        has_data, login_file_path, token_valid = self._check_existing_school_login_data(admin_email, current_school_year)
         
-        print_status("✅ Login thành công và tài khoản trùng khớp", "success")
+        # Khởi tạo biến auth_success
+        auth_success = False
+        login_result = None
+        client = None
         
-        # Hiển thị thông tin năm học sau khi login
-        client.print_current_school_year_info()
+        if has_data and token_valid:
+            print_status(f"✅ Tìm thấy dữ liệu JSON hợp lệ cho trường {school_name}", "success")
+            print_status(f"📄 File: {login_file_path}", "info")
+            
+            # Sử dụng token hiện có
+            client = OnLuyenAPIClient()
+            if client.load_token_from_login_file(admin_email, current_school_year):
+                print_status(f"✅ Đã load token từ file cho năm {current_school_year}", "success")
+                
+                # Test token để đảm bảo vẫn hợp lệ và đúng năm học
+                test_result = client.get_teachers(page_size=1)
+                if test_result['success']:
+                    # Kiểm tra năm học từ token có khớp với năm học mong muốn
+                    token_info = client.get_current_school_year_info()
+                    if token_info.get('success') and token_info.get('school_year'):
+                        actual_year = token_info.get('school_year')
+                        if actual_year == current_school_year:
+                            print_status(f"✅ Token hợp lệ cho năm {actual_year}, tiếp tục sử dụng", "success")
+                            return client, True, current_school_year
+                        else:
+                            print_status(f"⚠️ Token hiện có cho năm {actual_year}, cần token cho năm {current_school_year}", "warning")
+                    else:
+                        print_status("⚠️ Không thể xác định năm học từ token, cần xác thực lại", "warning")
+                else:
+                    print_status("⚠️ Token đã hết hạn, cần xác thực lại", "warning")
+            else:
+                print_status("⚠️ Không thể load token từ file, cần xác thực lại", "warning")
+        else:
+            if has_data:
+                print_status(f"⚠️ Có dữ liệu JSON nhưng token không hợp lệ cho trường {school_name}", "warning")
+            else:
+                print_status(f"ℹ️ Chưa có dữ liệu JSON cho trường {school_name}", "info")
         
-        return client, True, login_result
+        # Cần xác thực mới
+        print_status(f"🔐 Sử dụng ensure_valid_token cho năm {current_school_year}...", "info")
+        
+        client = OnLuyenAPIClient()
+        
+        if not client.ensure_valid_token(admin_email, password, current_school_year):
+            print_status(f"❌ Không thể đảm bảo token hợp lệ cho năm {current_school_year}", "error")
+            return None, False, None
+        
+        print_status(f"✅ Đã đảm bảo token hợp lệ cho năm {current_school_year}", "success")
+        
+        # Kiểm tra lại token đã đúng năm chưa
+        token_info = client.get_current_school_year_info()
+        actual_year = current_school_year
+        
+        if token_info.get('success') and token_info.get('school_year'):
+            actual_year = token_info.get('school_year')
+            if actual_year == current_school_year:
+                print_status(f"✅ Xác nhận token đúng năm học {actual_year}", "success")
+            else:
+                print_status(f"⚠️ Token hiện tại cho năm {actual_year}, không phải {current_school_year}", "warning")
+                print_status(f"🔄 Sẽ sử dụng dữ liệu cho năm {actual_year}", "info")
+        else:
+            print_status("⚠️ Không thể xác định năm học từ token", "warning")
+        
+        return client, True, actual_year
 
     def _execute_workflow_case_1(self, selected_school_data, ui_mode=False):
         """Execute Case 1 workflow - toàn bộ dữ liệu"""
@@ -786,50 +708,6 @@ class SchoolProcessApp:
         }
         
         try:
-            # Bước 1: Trích xuất dữ liệu từ Google Sheets
-            # print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
-            
-            # extractor = GoogleSheetsExtractor()
-            
-            # # Lấy tên sheet với logic fallback
-            # sheet_name = self._get_sheet_name_with_fallback(extractor)
-            # if not sheet_name:
-            #     print_status("❌ Không thể xác định tên sheet", "error")
-            #     return
-            
-            # print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
-            # school_data = extractor.extract_school_data(sheet_name=sheet_name)
-            
-            # if not school_data:
-            #     print_status("❌ Không thể trích xuất dữ liệu từ Google Sheets", "error")
-            #     return
-            
-            # workflow_results['sheets_extraction'] = True
-            # print_status(f"✅ Đã trích xuất {len(school_data)} trường học", "success")
-            
-            # # Chọn trường để xử lý
-            # if len(school_data) == 1:
-            #     selected_school = school_data[0]
-            #     print_status("Tự động chọn trường duy nhất", "info")
-            # else:
-            #     print("\n📋 DANH SÁCH TRƯỜNG ĐÃ TRÍCH XUẤT:")
-            #     for i, school in enumerate(school_data, 1):
-            #         school_name = school.get('Tên trường', 'N/A')
-            #         admin_email = school.get('Admin', 'N/A')
-            #         print(f"   {i}. {school_name} (Admin: {admin_email})")
-                
-            #     try:
-            #         choice = get_user_input(f"Chọn trường để xử lý (1-{len(school_data)})", required=True)
-            #         choice_idx = int(choice) - 1
-            #         if 0 <= choice_idx < len(school_data):
-            #             selected_school = school_data[choice_idx]
-            #         else:
-            #             print_status("Lựa chọn không hợp lệ", "error")
-            #             return
-            #     except (ValueError, TypeError):
-            #         print_status("Lựa chọn không hợp lệ", "error")
-            #         return
-            
             # Lấy thông tin trường
             school_name = selected_school_data.get('Tên trường', 'N/A')
             admin_email = selected_school_data.get('Admin', '')
@@ -861,21 +739,92 @@ class SchoolProcessApp:
                 print_status("❌ Thiếu thông tin Admin email hoặc Mật khẩu", "error")
                 return
             
-            # Bước 2: Lấy client đã xác thực (ưu tiên token từ file, nếu không có thì login)
+            # Bước 2: Xác thực OnLuyen API (chỉ login khi cần thiết)
             print_status("BƯỚC 2: Xác thực OnLuyen API", "info")
             
-            client, auth_success, login_result = self._get_authenticated_client(admin_email, password, ui_mode)
+            # Mặc định sử dụng năm 2025 trừ khi có thay đổi niên khóa
+            current_school_year = 2025
+            try:
+                from ui import MainWindow
+                if hasattr(MainWindow, '_instance') and MainWindow._instance:
+                    ui_year = getattr(MainWindow._instance, 'current_year', None)
+                    print_status(f"🎯 Kiểm tra năm học từ UI: {ui_year}", "info")
+                    if ui_year:
+                        current_school_year = ui_year
+                        print_status(f"🎯 Sử dụng năm học từ UI: {current_school_year}", "info")
+                    else:
+                        print_status(f"🎯 Sử dụng năm học mặc định: {current_school_year}", "info")
+                else:
+                    print_status(f"🎯 Sử dụng năm học mặc định: {current_school_year}", "info")
+            except:
+                print_status(f"🎯 Sử dụng năm học mặc định: {current_school_year}", "info")
             
-            if not auth_success:
-                print_status(f"❌ Xác thực thất bại: {login_result.get('error', 'Unknown error')}", "error")
-                return
+            # Kiểm tra xem có dữ liệu JSON cho trường này chưa
+
+            has_data, login_file_path, token_valid = self._check_existing_school_login_data(admin_email, current_school_year)
+            
+            # Khởi tạo biến auth_success
+            auth_success = False
+            login_result = None
+            client = None
+            
+            if has_data and token_valid:
+                print_status(f"✅ Tìm thấy dữ liệu JSON hợp lệ cho trường {school_name}", "success")
+                print_status(f"📄 File: {login_file_path}", "info")
+                
+                # Sử dụng token hiện có
+                client = OnLuyenAPIClient()
+                if client.load_token_from_login_file(admin_email, current_school_year):
+                    print_status(f"✅ Đã load token từ file cho năm {current_school_year}", "success")
+                    
+                    # Test token để đảm bảo vẫn hợp lệ và đúng năm học
+                    test_result = client.get_teachers(page_size=1)
+                    if test_result['success']:
+                        # Kiểm tra năm học từ token có khớp với năm học mong muốn
+                        token_info = client.get_current_school_year_info()
+                        if token_info.get('success') and token_info.get('school_year'):
+                            actual_year = token_info.get('school_year')
+                            if actual_year == current_school_year:
+                                auth_success = True
+                                login_result = {"success": True, "data": {"source": "existing_login_file", "school_year": current_school_year}}
+                                print_status(f"✅ Token hợp lệ cho năm {actual_year}, tiếp tục sử dụng", "success")
+                            else:
+                                print_status(f"⚠️ Token hiện có cho năm {actual_year}, cần token cho năm {current_school_year}", "warning")
+                                has_data = False  # Force login lại để lấy token đúng năm
+                        else:
+                            print_status("⚠️ Không thể xác định năm học từ token, cần login lại", "warning")
+                            has_data = False  # Force login lại
+                    else:
+                        print_status("⚠️ Token đã hết hạn, cần login lại", "warning")
+                        has_data = False  # Force login lại
+                else:
+                    print_status("⚠️ Không thể load token từ file, cần login lại", "warning")
+                    has_data = False  # Force login lại
+            
+            if not has_data or not token_valid or not auth_success:
+                if has_data:
+                    print_status(f"⚠️ Có dữ liệu JSON nhưng token không hợp lệ cho trường {school_name}", "warning")
+                else:
+                    print_status(f"ℹ️ Chưa có dữ liệu JSON cho trường {school_name}", "info")
+                
+                print_status(f"🔐 Thực hiện login mới cho năm {current_school_year}...", "info")
+                
+                # Thực hiện login mới
+                client, auth_success, login_result = self._get_authenticated_client(admin_email, password, current_school_year, ui_mode)
+                
+                if not auth_success:
+                    print_status(f"❌ Xác thực thất bại: {login_result.get('error', 'Unknown error')}", "error")
+                    return
+                
+                # Lưu thông tin login mới với cấu trúc JSON đúng
+                if login_result.get('data', {}).get('source') != 'login_file':
+                    print_status("💾 Lưu thông tin login mới...", "info")
+                    self._save_successful_login_info(school_name, admin_email, login_result, drive_link, password, current_school_year)
+                    print_status(f"✅ Đã tạo/cập nhật dữ liệu JSON cho trường {school_name}", "success")
             
             workflow_results['api_login'] = True
-            print_status("✅ OnLuyen API xác thực thành công", "success")
-            
-            # Lưu thông tin login nếu có login mới
-            if login_result.get('data', {}).get('source') != 'login_file':
-                self._save_successful_login_info(school_name, admin_email, login_result, drive_link, password)
+            workflow_results['school_year'] = current_school_year
+            print_status(f"✅ OnLuyen API xác thực thành công cho năm {current_school_year}", "success")
             
             # Bước 3: Lấy danh sách Giáo viên
             print_status("BƯỚC 3: Lấy danh sách Giáo viên", "info")
@@ -900,11 +849,6 @@ class SchoolProcessApp:
                     print_status("🔍 Trích xuất thông tin Hiệu trường (HT) và Hiệu phó (HP)", "info")
                     ht_hp_info = self._extract_ht_hp_info(teachers_data)
                     workflow_results['ht_hp_info'] = ht_hp_info
-                    
-                    # HT/HP info được lưu trong unified workflow file - không cần file riêng
-                    # ht_hp_file = self._save_ht_hp_info(ht_hp_info, school_name)
-                    # if ht_hp_file:
-                    #     workflow_results['ht_hp_file'] = ht_hp_file
                         
                 else:
                     print_status("⚠️ Định dạng dữ liệu giáo viên không đúng", "warning")
@@ -1126,38 +1070,6 @@ class SchoolProcessApp:
             
             self._print_workflow_summary(workflow_results)
             
-            # # Hỏi có muốn mở file Excel không nếu tạo thành công
-            # if workflow_results['excel_converted'] and workflow_results['excel_file_path']:
-            #     action_options = ["Mở file Excel local"]
-                
-            #     if workflow_results['drive_uploaded'] and workflow_results['upload_results'].get('urls'):
-            #         action_options.append("Mở Google Drive folder")
-                
-            #     if len(action_options) > 1:
-            #         print(f"\n🎯 BẠN CÓ THỂ:")
-            #         for i, option in enumerate(action_options, 1):
-            #             print(f"   {i}. {option}")
-                    
-            #         choice = get_user_input(f"Chọn hành động (1-{len(action_options)}, Enter = bỏ qua)")
-                    
-            #         if choice == "1":
-            #             try:
-            #                 os.startfile(workflow_results['excel_file_path'])
-            #                 print_status("Đã mở file Excel", "success")
-            #             except Exception as e:
-            #                 print_status(f"Không thể mở file Excel: {e}", "warning")
-            #         elif choice == "2" and len(action_options) > 1:
-            #             drive_folder_url = drive_link
-            #             print_status(f"🔗 Google Drive: {drive_folder_url}", "info")
-            #             print("💡 Bạn có thể mở link trên trong trình duyệt")
-            #     else:
-            #         if get_user_confirmation("Bạn có muốn mở file Excel đã tạo?"):
-            #             try:
-            #                 os.startfile(workflow_results['excel_file_path'])
-            #                 print_status("Đã mở file Excel", "success")
-            #             except Exception as e:
-            #                 print_status(f"Không thể mở file Excel: {e}", "warning")
-            
             # Lưu dữ liệu vào file nếu chưa lưu (fallback)
             if not workflow_results['json_saved'] and (workflow_results['teachers_data'] or workflow_results['students_data']):
                 self._save_unified_workflow_data(
@@ -1200,22 +1112,213 @@ class SchoolProcessApp:
         }
         
         try:
-            # Bước 1-4: Giống Case 1 - Lấy dữ liệu từ Sheets và OnLuyen API
-            print_status("BƯỚC 1-4: Lấy dữ liệu cơ bản (giống Case 1)", "info")
+            # Lấy thông tin trường
+            school_name = selected_school_data.get('Tên trường', 'N/A')
+            admin_email = selected_school_data.get('Admin', '')
+            password = selected_school_data.get('Mật khẩu', '')
+            drive_link = selected_school_data.get('Link driver dữ liệu', 'N/A')
             
-            # Thực hiện các bước giống Case 1
-            basic_results = self._execute_basic_workflow_steps(selected_school_data)
-            if not basic_results:
-                print_status("❌ Lỗi trong các bước cơ bản", "error")
-                
+            workflow_results['school_info'] = {
+                'name': school_name,
+                'admin': admin_email,
+                'drive_link': drive_link
+            }
+            
+            print(f"\n📋 THÔNG TIN TRƯỜNG ĐÃ CHỌN:")
+            print(f"   🏫 Tên trường: {school_name}")
+            print(f"   👤 Admin: {admin_email}")
+            print(f"   🔗 Drive Link: {drive_link[:60] + '...' if len(drive_link) > 60 else drive_link}")
+            
+            if not admin_email or not password:
+                print_status("❌ Thiếu thông tin Admin email hoặc Mật khẩu", "error")
                 return
             
-            # Cập nhật workflow_results với dữ liệu cơ bản
-            workflow_results.update(basic_results)
+            # Bước 1-2: Xác thực OnLuyen API (chỉ login khi cần thiết)
+            print_status("BƯỚC 1-2: Xác thực OnLuyen API", "info")
             
-            if not (workflow_results['sheets_extraction'] and workflow_results['api_login'] and 
-                   (workflow_results['teachers_data'] or workflow_results['students_data'])):
+            # Case 2 luôn sử dụng năm 2025 (bất kể UI chọn gì)
+            current_school_year = 2025
+            
+            # Kiểm tra năm học từ UI để thông báo và dừng nếu không phải 2025
+            ui_year = None
+            try:
+                from ui import MainWindow
+                if hasattr(MainWindow, '_instance') and MainWindow._instance:
+                    ui_year = getattr(MainWindow._instance, 'current_year', None)
+                    
+            except:
+                pass
+            
+            if ui_year and ui_year != 2025:
+                print_status(f"❌ Workflow Case 2 chỉ hỗ trợ năm học 2025-2026", "error")
+                print_status(f"   Năm học hiện tại được chọn: {ui_year}", "error")
+                print_status(f"   Vui lòng chuyển về năm học 2025-2026 để tiếp tục", "error")
+                return None
+            
+            print_status(f"🎯 Workflow Case 2 sử dụng năm học: {current_school_year}", "info")
+            
+            # Kiểm tra xem có dữ liệu JSON cho trường này chưa
+            has_data, login_file_path, token_valid = self._check_existing_school_login_data(admin_email, current_school_year)
+            
+            # Khởi tạo biến auth_success
+            auth_success = False
+            login_result = None
+            client = None
+            
+            if has_data and token_valid:
+                print_status(f"✅ Tìm thấy dữ liệu JSON hợp lệ cho trường {school_name}", "success")
+                print_status(f"📄 File: {login_file_path}", "info")
+                
+                # Sử dụng token hiện có
+                client = OnLuyenAPIClient()
+                if client.load_token_from_login_file(admin_email, current_school_year):
+                    print_status(f"✅ Đã load token từ file cho năm {current_school_year}", "success")
+                    
+                    # Test token để đảm bảo vẫn hợp lệ và đúng năm học
+                    test_result = client.get_teachers(page_size=1)
+                    if test_result['success']:
+                        # Kiểm tra năm học từ token có khớp với năm học mong muốn
+                        token_info = client.get_current_school_year_info()
+                        if token_info.get('success') and token_info.get('school_year'):
+                            actual_year = token_info.get('school_year')
+                            if actual_year == current_school_year:
+                                auth_success = True
+                                login_result = {"success": True, "data": {"source": "existing_login_file", "school_year": current_school_year}}
+                                print_status(f"✅ Token hợp lệ cho năm {actual_year}, tiếp tục sử dụng", "success")
+                            else:
+                                print_status(f"⚠️ Token hiện có cho năm {actual_year}, cần token cho năm {current_school_year}", "warning")
+                                has_data = False  # Force login lại để lấy token đúng năm
+                        else:
+                            print_status("⚠️ Không thể xác định năm học từ token, cần login lại", "warning")
+                            has_data = False  # Force login lại
+                    else:
+                        print_status("⚠️ Token đã hết hạn, cần login lại", "warning")
+                        has_data = False  # Force login lại
+                else:
+                    print_status("⚠️ Không thể load token từ file, cần login lại", "warning")
+                    has_data = False  # Force login lại
+            
+            if not has_data or not token_valid or not auth_success:
+                if has_data:
+                    print_status(f"⚠️ Có dữ liệu JSON nhưng token không hợp lệ cho trường {school_name}", "warning")
+                else:
+                    print_status(f"ℹ️ Chưa có dữ liệu JSON cho trường {school_name}", "info")
+                
+                print_status(f"🔐 Thực hiện login mới cho năm {current_school_year}...", "info")
+                
+                # Thực hiện login mới
+                client, auth_success, login_result = self._get_authenticated_client(admin_email, password, current_school_year, ui_mode)
+                
+                if not auth_success:
+                    print_status(f"❌ Xác thực thất bại: {login_result.get('error', 'Unknown error')}", "error")
+                    return
+                
+                # Lưu thông tin login mới với cấu trúc JSON đúng
+                if login_result.get('data', {}).get('source') != 'login_file':
+                    print_status("💾 Lưu thông tin login mới...", "info")
+                    self._save_successful_login_info(school_name, admin_email, login_result, drive_link, password, current_school_year)
+                    print_status(f"✅ Đã tạo/cập nhật dữ liệu JSON cho trường {school_name}", "success")
+            
+            workflow_results['api_login'] = True
+            workflow_results['school_year'] = current_school_year
+            print_status(f"✅ OnLuyen API xác thực thành công cho năm {current_school_year}", "success")
+            
+            # Bước 3: Lấy danh sách Giáo viên
+            print_status("BƯỚC 3: Lấy danh sách Giáo viên", "info")
+            
+            teachers_result = client.get_teachers(page_size=1000)
+            
+            if teachers_result['success'] and teachers_result.get('data'):
+                teachers_data = teachers_result['data']
+                if isinstance(teachers_data, dict) and 'data' in teachers_data:
+                    teachers_list = teachers_data['data']
+                    teachers_count = teachers_data.get('totalCount', len(teachers_list))
+                    
+                    workflow_results['teachers_data'] = True
+                    workflow_results['data_summary']['teachers'] = {
+                        'total': teachers_count,
+                        'retrieved': len(teachers_list)
+                    }
+                    workflow_results['teachers_result'] = teachers_result
+                    
+                    print_status(f"✅ Lấy danh sách giáo viên thành công: {len(teachers_list)}/{teachers_count}", "success")
+                else:
+                    print_status("⚠️ Định dạng dữ liệu giáo viên không đúng", "warning")
+            else:
+                print_status(f"❌ Lỗi lấy danh sách giáo viên: {teachers_result.get('error')}", "error")
+            
+            # Bước 4: Lấy danh sách Học sinh
+            print_status("BƯỚC 4: Lấy danh sách Học sinh", "info")
+            
+            # Gọi API lần đầu để biết tổng số học sinh
+            students_result = client.get_students(page_index=1, page_size=1000)
+            
+            if students_result['success'] and students_result.get('data'):
+                students_data = students_result['data']
+                if isinstance(students_data, dict) and 'data' in students_data:
+                    all_students_list = []
+                    students_count = students_data.get('totalCount', 0)
+                    
+                    print_status(f"📊 Tổng số học sinh cần lấy: {students_count}", "info")
+                    
+                    if students_count > 0:
+                        # Lấy dữ liệu từ lần gọi đầu tiên
+                        first_batch = students_data['data']
+                        all_students_list.extend(first_batch)
+                        print_status(f"   ✅ Lấy được batch 1: {len(first_batch)} học sinh", "info")
+                        
+                        # Tính số lần gọi API cần thiết
+                        page_size = 1000
+                        total_pages = (students_count + page_size - 1) // page_size
+                        
+                        # Gọi API cho các trang còn lại
+                        for page_index in range(2, total_pages + 1):
+                            print_status(f"   🔄 Đang lấy batch {page_index}/{total_pages}...", "info")
+                            
+                            batch_result = client.get_students(page_index=page_index, page_size=page_size)
+                            
+                            if batch_result['success'] and batch_result.get('data'):
+                                batch_data = batch_result['data']
+                                if isinstance(batch_data, dict) and 'data' in batch_data:
+                                    batch_students = batch_data['data']
+                                    all_students_list.extend(batch_students)
+                                    print_status(f"   ✅ Lấy được batch {page_index}: {len(batch_students)} học sinh", "info")
+                                else:
+                                    print_status(f"   ⚠️ Batch {page_index}: Định dạng dữ liệu không đúng", "warning")
+                            else:
+                                print_status(f"   ❌ Batch {page_index}: {batch_result.get('error', 'Lỗi không xác định')}", "error")
+                        
+                        # Cập nhật students_result với tất cả dữ liệu
+                        students_result['data'] = {
+                            'data': all_students_list,
+                            'totalCount': students_count
+                        }
+                        
+                        workflow_results['students_data'] = True
+                        workflow_results['data_summary']['students'] = {
+                            'total': students_count,
+                            'retrieved': len(all_students_list)
+                        }
+                        workflow_results['students_result'] = students_result
+                        
+                        print_status(f"✅ Hoàn thành lấy danh sách học sinh: {len(all_students_list)}/{students_count}", "success")
+                    else:
+                        workflow_results['students_data'] = False
+                        workflow_results['data_summary']['students'] = {
+                            'total': 0,
+                            'retrieved': 0
+                        }
+                        workflow_results['students_result'] = students_result
+                        print_status("⚠️ Không có học sinh nào trong hệ thống", "warning")
+                else:
+                    print_status("⚠️ Định dạng dữ liệu học sinh không đúng", "warning")
+            else:
+                print_status(f"❌ Lỗi lấy danh sách học sinh: {students_result.get('error')}", "error")
+
+            # Kiểm tra có đủ dữ liệu để tiếp tục không
+            if not (workflow_results['api_login'] and (workflow_results['teachers_data'] or workflow_results['students_data'])):
                 print_status("❌ Không đủ dữ liệu cơ bản để tiếp tục", "error")
+                return
                 return
 
             # Bước 5: Tải file import từ Google Drive
@@ -1288,8 +1391,8 @@ class SchoolProcessApp:
             
             json_file_path = self._save_unified_workflow_data(
                 workflow_results=workflow_results,
-                teachers_result=basic_results.get('teachers_result'),
-                students_result=basic_results.get('students_result'),
+                teachers_result=workflow_results.get('teachers_result'),
+                students_result=workflow_results.get('students_result'),
                 comparison_results=comparison_results,
                 admin_password=selected_school_data.get('Mật khẩu'),
                 workflow_type="case_2"
@@ -1351,15 +1454,6 @@ class SchoolProcessApp:
             print_status("BƯỚC 10: Tổng hợp kết quả", "info")
             
             self._print_workflow_summary_case_2(workflow_results)
-            
-            # Hỏi có muốn mở file Excel không
-            # if workflow_results['excel_converted'] and workflow_results['excel_file_path']:
-            #     if get_user_confirmation("Bạn có muốn mở file Excel đã tạo?"):
-            #         try:
-            #             os.startfile(workflow_results['excel_file_path'])
-            #             print_status("Đã mở file Excel", "success")
-            #         except Exception as e:
-            #             print_status(f"Không thể mở file Excel: {e}", "warning")
             
             return workflow_results
             
@@ -1626,86 +1720,6 @@ class SchoolProcessApp:
             return None
 
     def _print_workflow_summary(self, results):
-        """In tóm tắt kết quả workflow"""
-        print(f"\n📊 TÓM TẮT KẾT QUẢ WORKFLOW:")
-        print("=" * 70)
-        
-        print(f"🏫 Trường: {results['school_info'].get('name', 'N/A')}")
-        print(f"👤 Admin: {results['school_info'].get('admin', 'N/A')}")
-        print()
-        
-        # Trạng thái từng bước
-        steps = [
-            ("1️⃣ Trích xuất Google Sheets", results['sheets_extraction']),
-            ("2️⃣ OnLuyen API Login", results['api_login']),
-            ("3️⃣ Lấy dữ liệu Giáo viên", results['teachers_data']),
-            ("4️⃣ Lấy dữ liệu Học sinh", results['students_data']),
-            ("5️⃣ Lưu dữ liệu JSON", results['json_saved']),
-            ("6️⃣ Chuyển đổi Excel", results['excel_converted']),
-            ("7️⃣ Upload Google Drive", results['drive_uploaded'])
-        ]
-        
-        for step_name, status in steps:
-            status_icon = "✅" if status else "❌"
-            status_text = "Thành công" if status else "Thất bại"
-            print(f"{status_icon} {step_name}: {status_text}")
-        
-        # Tóm tắt dữ liệu
-        if results.get('data_summary'):
-            print(f"\n📊 TÓM TẮT DỮ LIỆU:")
-            data_summary = results['data_summary']
-            
-            if 'teachers' in data_summary:
-                teachers = data_summary['teachers']
-                print(f"   👨‍🏫 Giáo viên: {teachers['retrieved']}/{teachers['total']}")
-            
-            if 'students' in data_summary:
-                students = data_summary['students']
-                print(f"   👨‍🎓 Học sinh: {students['retrieved']}/{students['total']}")
-        
-        # Thông tin HT/HP
-        if results.get('ht_hp_info'):
-            ht_hp_info = results['ht_hp_info']
-            print(f"\n👑 THÔNG TIN LÃNH ĐẠO:")
-            print(f"   👑 Hiệu trường (HT): {ht_hp_info.get('total_ht', 0)} người")
-            print(f"   🔸 Hiệu phó (HP): {ht_hp_info.get('total_hp', 0)} người")
-            
-            # Hiển thị danh sách HT
-            if ht_hp_info.get('ht'):
-                print(f"   📋 Danh sách Hiệu trường:")
-                for i, ht in enumerate(ht_hp_info['ht'], 1):
-                    print(f"      {i}. {ht['name']}")
-            
-            # Hiển thị danh sách HP
-            if ht_hp_info.get('hp'):
-                print(f"   📋 Danh sách Hiệu phó:")
-                for i, hp in enumerate(ht_hp_info['hp'], 1):
-                    print(f"      {i}. {hp['name']}")
-        
-        # File outputs
-        if results.get('json_file_path') or results.get('excel_file_path') or results.get('ht_hp_file'):
-            print(f"\n📄 FILES ĐÃ TẠO:")
-            if results.get('json_file_path'):
-                print(f"   📋 JSON: {results['json_file_path']}")
-            if results.get('excel_file_path'):
-                print(f"   📊 Excel: {results['excel_file_path']}")
-            if results.get('ht_hp_file'):
-                print(f"   👑 HT/HP Info: {results['ht_hp_file']}")
-        
-        # Upload results
-        if results.get('upload_results'):
-            upload_info = results['upload_results']
-            print(f"\n📤 DRIVE UPLOAD:")
-            print(f"   ✅ Thành công: {upload_info.get('success', 0)} files")
-            print(f"   ❌ Thất bại: {upload_info.get('failed', 0)} files")
-            
-            if upload_info.get('urls'):
-                print(f"   🔗 Upload URLs:")
-                for i, url in enumerate(upload_info['urls'][:3], 1):
-                    print(f"      {i}. {url}")
-                if len(upload_info['urls']) > 3:
-                    print(f"      ... và {len(upload_info['urls']) - 3} URLs khác")
-        
         # Tổng kết
         success_count = sum([results['sheets_extraction'], results['api_login'], 
                            results['teachers_data'], results['students_data'],
@@ -1714,22 +1728,6 @@ class SchoolProcessApp:
         total_steps = 7
         
         print(f"\n🎯 TỔNG KẾT: {success_count}/{total_steps} bước thành công")
-        
-        if success_count == total_steps:
-            print_status("🎉 WORKFLOW HOÀN CHỈNH THÀNH CÔNG - ĐÃ TẠO EXCEL VÀ UPLOAD DRIVE!", "success")
-        elif success_count >= 6:
-            print_status("⚠️ Workflow hoàn thành chính (có thể thiếu Drive upload do Drive link không hợp lệ)", "warning")
-            if not results['drive_uploaded']:
-                print("💡 Lý do có thể:")
-                print("   • Drive link trong Google Sheets không đúng format")
-                print("   • Cần cập nhật cột 'Link driver dữ liệu' với link thực tế")
-                print("   • OAuth chưa được setup đúng")
-        elif success_count >= 4:
-            print_status("⚠️ Workflow hoàn thành phần chính (có thể thiếu JSON/Excel/Upload)", "warning")
-        elif success_count >= 2:
-            print_status("⚠️ Workflow hoàn thành một phần", "warning")
-        else:
-            print_status("❌ Workflow thất bại", "error")
     
     def _save_teachers_data(self, teachers_list, total_count):
         """Lưu dữ liệu giáo viên vào file JSON"""
@@ -1977,396 +1975,6 @@ class SchoolProcessApp:
             'retrieved_count': len(students_list),
             'data': students_list
         }
-    
-    def _load_latest_login_tokens(self):
-        """Tải tokens từ file login gần nhất"""
-        try:
-            
-            # Tìm file login gần nhất
-            pattern = "data/output/onluyen_login_*.json"
-            files = glob.glob(pattern)
-            
-            if not files:
-                print_status("Không tìm thấy file login nào", "warning")
-                return None
-            
-            # Sắp xếp theo thời gian tạo, lấy file mới nhất
-            latest_file = max(files, key=lambda f: Path(f).stat().st_mtime)
-            
-            with open(latest_file, 'r', encoding='utf-8') as f:
-                login_data = json.load(f)
-            
-            tokens = login_data.get('tokens', {})
-            if tokens.get('access_token'):
-                print_status(f"Đã tải tokens từ: {latest_file}", "success")
-                return tokens
-            else:
-                print_status("File login không chứa tokens hợp lệ", "warning")
-                return None
-                
-        except Exception as e:
-            print_status(f"Lỗi tải tokens: {e}", "error")
-            return None
-    
-    def onluyen_use_saved_tokens(self):
-        """Sử dụng tokens đã lưu từ login trước đó"""
-        print_separator("SỬ DỤNG TOKENS ĐÃ LƯU")
-        
-        # Tải tokens từ file
-        tokens = self._load_latest_login_tokens()
-        if not tokens:
-            return
-        
-        try:
-            # Khởi tạo client và set token
-            client = OnLuyenAPIClient()
-            access_token = tokens.get('access_token')
-            
-            if access_token:
-                client.set_auth_token(access_token)
-                print_status("Đã set access token thành công", "success")
-                
-                # Test token bằng cách thử gọi API
-                print_status("Đang test token bằng cách lấy danh sách giáo viên...", "info")
-                result = client.get_teachers(page_size=5)
-                
-                if result['success']:
-                    print_status("Token hoạt động tốt! Có thể sử dụng các API khác.", "success")
-                    data = result.get('data', [])
-                    print(f"   📊 Số giáo viên lấy được: {len(data) if isinstance(data, list) else 'N/A'}")
-                else:
-                    print_status(f"Token có thể đã hết hạn: {result.get('error', 'Unknown error')}", "warning")
-                    print("   💡 Thử login lại để lấy token mới")
-            else:
-                print_status("Không tìm thấy access token trong file", "error")
-                
-        except ImportError:
-            print_status("Module onluyen_api chưa được cài đặt", "error")
-        except Exception as e:
-            print_status(f"Lỗi sử dụng tokens: {e}", "error")
-    
-    def onluyen_convert_json_to_excel(self):
-        """Chuyển đổi JSON Workflow sang Excel"""
-        print_separator("CHUYỂN ĐỔI JSON WORKFLOW → EXCEL")
-        
-        try:
-            
-            # Tìm các file JSON workflow
-            json_patterns = [
-                "data/output/data_*.json",
-                "data/output/workflow_data_*.json"
-            ]
-            
-            json_files = []
-            for pattern in json_patterns:
-                json_files.extend(glob.glob(pattern))
-            
-            if not json_files:
-                print_status("Không tìm thấy file JSON workflow nào", "warning")
-                return
-            
-            # Chọn file để convert
-            if len(json_files) == 1:
-                selected_file = json_files[0]
-            else:
-                print(f"\nTìm thấy {len(json_files)} file JSON:")
-                for i, file in enumerate(json_files, 1):
-                    print(f"{i}. {Path(file).name}")
-                
-                try:
-                    choice = get_user_input(f"Chọn file để convert (1-{len(json_files)})", required=True)
-                    choice_idx = int(choice) - 1
-                    if 0 <= choice_idx < len(json_files):
-                        selected_file = json_files[choice_idx]
-                    else:
-                        print_status("Lựa chọn không hợp lệ", "error")
-                        return
-                except (ValueError, TypeError):
-                    print_status("Lựa chọn không hợp lệ", "error")
-                    return
-            
-            # Import và sử dụng converter
-            converter = JSONToExcelTemplateConverter(selected_file)
-            
-            # Load và kiểm tra JSON data
-            if not converter.load_json_data():
-                print_status("Không thể load JSON data", "error")
-                return
-            
-            # Extract data
-            teachers_extracted = converter.extract_teachers_data()
-            students_extracted = converter.extract_students_data()
-            
-            if not teachers_extracted and not students_extracted:
-                print_status("Không thể trích xuất dữ liệu giáo viên hoặc học sinh", "error")
-                return
-            
-            # Convert to Excel
-            output_path = converter.convert()
-            
-            if output_path:
-                print_status("Chuyển đổi thành công!", "success")
-                print(f"File Excel: {output_path}")
-                
-                # Hiển thị thống kê
-                teachers_count = len(converter.teachers_df) if converter.teachers_df is not None else 0
-                students_count = len(converter.students_df) if converter.students_df is not None else 0
-                
-                print(f"\nThống kê: {teachers_count} giáo viên, {students_count} học sinh")
-                
-                # Hỏi có muốn mở file Excel không
-                if get_user_confirmation("Bạn có muốn mở file Excel?"):
-                    try:
-                        os.startfile(output_path)
-                    except Exception as e:
-                        print_status(f"Không thể mở file Excel: {e}", "warning")
-            else:
-                print_status("Chuyển đổi thất bại", "error")
-                
-        except ImportError:
-            print_status("Module json_to_excel_template_converter chưa được cài đặt", "error")
-        except Exception as e:
-            print_status(f"Lỗi chuyển đổi: {e}", "error")
-    
-
-    
-    
-    def _get_sheet_name_with_fallback(self, extractor):
-        """
-        Lấy tên sheet với logic fallback:
-        1. Thử với ED-2025 trước
-        2. Nếu không có thì yêu cầu nhập tên sheet
-        """
-        try:
-            # Thử với ED-2025 trước
-            print_status("Đang thử tìm sheet 'ED-2025'...", "info")
-            test_data = extractor.extract_school_data(sheet_name="ED-2025")
-            
-            if test_data and len(test_data) > 0:
-                print_status("✅ Tìm thấy sheet 'ED-2025'", "success")
-                return "ED-2025"
-            else:
-                print_status("⚠️ Không tìm thấy sheet 'ED-2025' hoặc sheet trống", "warning")
-                
-                # Yêu cầu nhập tên sheet
-                sheet_name = get_user_input("Nhập tên sheet (bắt buộc):")
-                if not sheet_name:
-                    print_status("❌ Tên sheet không được để trống", "error")
-                    return None
-                    
-                return sheet_name.strip()
-                
-        except Exception as e:
-            print_status(f"⚠️ Lỗi khi thử tìm sheet ED-2025: {e}", "warning")
-            
-            # Fallback: yêu cầu nhập tên sheet
-            sheet_name = get_user_input("Nhập tên sheet:")
-            if not sheet_name:
-                print_status("❌ Tên sheet không được để trống", "error")
-                return None
-                
-            return sheet_name.strip()
-
-    def _execute_basic_workflow_steps(self, selected_school):
-        """Thực hiện các bước cơ bản của workflow (dùng chung cho cả 2 case)"""
-        basic_results = {
-            'sheets_extraction': False,
-            'api_login': False, 
-            'teachers_data': False,
-            'students_data': False,
-            'school_info': {},
-            'data_summary': {},
-            'teachers_result': None,
-            'students_result': None
-        }
-        
-        try:
-            # # Bước 1: Trích xuất dữ liệu từ Google Sheets
-            # print_status("BƯỚC 1: Trích xuất dữ liệu từ Google Sheets", "info")
-            
-            # extractor = GoogleSheetsExtractor()
-            
-            # # Lấy tên sheet với logic fallback
-            # sheet_name = self._get_sheet_name_with_fallback(extractor)
-            # if not sheet_name:
-            #     print_status("❌ Không thể xác định tên sheet", "error")
-            #     return None
-            
-            # print_status(f"Đang trích xuất dữ liệu từ sheet: {sheet_name}", "info")
-            # school_data = extractor.extract_school_data(sheet_name=sheet_name)
-            
-            if not selected_school:
-                print_status("❌ Không thể trích xuất dữ liệu", "error")
-                return None
-            
-            basic_results['sheets_extraction'] = True
-            # print_status(f"✅ Đã trích xuất {len(school_data)} trường học", "success")
-            
-            # # Chọn trường để xử lý
-            # if len(school_data) == 1:
-            #     selected_school = school_data[0]
-            #     print_status("Tự động chọn trường duy nhất", "info")
-            # else:
-            #     print("\n📋 DANH SÁCH TRƯỜNG ĐÃ TRÍCH XUẤT:")
-            #     for i, school in enumerate(school_data, 1):
-            #         school_name = school.get('Tên trường', 'N/A')
-            #         admin_email = school.get('Admin', 'N/A')
-            #         print(f"   {i}. {school_name} (Admin: {admin_email})")
-                
-            #     try:
-            #         choice = get_user_input(f"Chọn trường để xử lý (1-{len(school_data)})", required=True)
-            #         choice_idx = int(choice) - 1
-            #         if 0 <= choice_idx < len(school_data):
-            #             selected_school = school_data[choice_idx]
-            #         else:
-            #             print_status("Lựa chọn không hợp lệ", "error")
-            #             return None
-            #     except (ValueError, TypeError):
-            #         print_status("Lựa chọn không hợp lệ", "error")
-            #         return None
-            
-            # Lấy thông tin trường
-            school_name = selected_school.get('Tên trường', 'N/A')
-            admin_email = selected_school.get('Admin', '')
-            password = selected_school.get('Mật khẩu', '')
-            drive_link = selected_school.get('Link driver dữ liệu', 'N/A')
-            
-            basic_results['school_info'] = {
-                'name': school_name,
-                'admin': admin_email,
-                'drive_link': drive_link,
-                'password': password
-            }
-            
-            print(f"\n📋 THÔNG TIN TRƯỜNG ĐÃ CHỌN:")
-            print(f"   🏫 Tên trường: {school_name}")
-            print(f"   👤 Admin: {admin_email}")
-            print(f"   🔗 Drive Link: {drive_link[:60] + '...' if len(drive_link) > 60 else drive_link}")
-            
-            if not admin_email or not password:
-                print_status("❌ Thiếu thông tin Admin email hoặc Mật khẩu", "error")
-                return None
-            
-            # Bước 2: Lấy client đã xác thực (ưu tiên token từ file, nếu không có thì login)
-            print_status("BƯỚC 2: Xác thực OnLuyen API", "info")
-            
-            client, auth_success, login_result = self._get_authenticated_client(admin_email, password, False)
-            
-            if not auth_success:
-                print_status(f"❌ Xác thực thất bại: {login_result.get('error', 'Unknown error')}", "error")
-                return None
-            
-            basic_results['api_login'] = True
-            print_status("✅ OnLuyen API xác thực thành công", "success")
-            
-            # Bước 3: Lấy danh sách Giáo viên
-            print_status("BƯỚC 3: Lấy danh sách Giáo viên", "info")
-            
-            teachers_result = client.get_teachers(page_size=1000)
-            
-            if teachers_result['success'] and teachers_result.get('data'):
-                teachers_data = teachers_result['data']
-                if isinstance(teachers_data, dict) and 'data' in teachers_data:
-                    teachers_list = teachers_data['data']
-                    teachers_count = teachers_data.get('totalCount', len(teachers_list))
-                    
-                    basic_results['teachers_data'] = True
-                    basic_results['teachers_result'] = teachers_result
-                    basic_results['data_summary']['teachers'] = {
-                        'total': teachers_count,
-                        'retrieved': len(teachers_list)
-                    }
-                    
-                    print_status(f"✅ Lấy danh sách giáo viên thành công: {len(teachers_list)}/{teachers_count}", "success")
-                    
-                    # Extract thông tin HT/HP cho Case 2
-                    print_status("🔍 Trích xuất thông tin Hiệu trường (HT) và Hiệu phó (HP)", "info")
-                    ht_hp_info = self._extract_ht_hp_info(teachers_data)
-                    basic_results['ht_hp_info'] = ht_hp_info
-                    
-                    # HT/HP info được lưu trong unified workflow file - không cần file riêng
-                    # school_name = basic_results['school_info'].get('name', 'Unknown')
-                    # ht_hp_file = self._save_ht_hp_info(ht_hp_info, school_name)
-                    # if ht_hp_file:
-                    #     basic_results['ht_hp_file'] = ht_hp_file
-                else:
-                    print_status("⚠️ Định dạng dữ liệu giáo viên không đúng", "warning")
-            else:
-                print_status(f"❌ Lỗi lấy danh sách giáo viên: {teachers_result.get('error')}", "error")
-            
-            # Bước 4: Lấy danh sách Học sinh
-            print_status("BƯỚC 4: Lấy danh sách Học sinh", "info")
-            
-            # Gọi API lần đầu để biết tổng số học sinh
-            students_result = client.get_students(page_index=1, page_size=1000)
-            
-            if students_result['success'] and students_result.get('data'):
-                students_data = students_result['data']
-                if isinstance(students_data, dict) and 'data' in students_data:
-                    all_students_list = []
-                    students_count = students_data.get('totalCount', 0)
-                    
-                    print_status(f"📊 Tổng số học sinh cần lấy: {students_count}", "info")
-                    
-                    if students_count > 0:
-                        # Lấy dữ liệu từ lần gọi đầu tiên
-                        first_batch = students_data['data']
-                        all_students_list.extend(first_batch)
-                        print_status(f"   ✅ Lấy được batch 1: {len(first_batch)} học sinh", "info")
-                        
-                        # Tính số lần gọi API cần thiết
-                        page_size = 1000  # Sử dụng page size nhỏ hơn để đảm bảo ổn định
-                        total_pages = (students_count + page_size - 1) // page_size
-                        
-                        # Gọi API cho các trang còn lại
-                        for page_index in range(2, total_pages + 1):
-                            print_status(f"   🔄 Đang lấy batch {page_index}/{total_pages}...", "info")
-                            
-                            batch_result = client.get_students(page_index=page_index, page_size=page_size)
-                            
-                            if batch_result['success'] and batch_result.get('data'):
-                                batch_data = batch_result['data']
-                                if isinstance(batch_data, dict) and 'data' in batch_data:
-                                    batch_students = batch_data['data']
-                                    all_students_list.extend(batch_students)
-                                    print_status(f"   ✅ Lấy được batch {page_index}: {len(batch_students)} học sinh", "info")
-                                else:
-                                    print_status(f"   ⚠️ Batch {page_index}: Định dạng dữ liệu không đúng", "warning")
-                            else:
-                                print_status(f"   ❌ Batch {page_index}: {batch_result.get('error', 'Lỗi không xác định')}", "error")
-                        
-                        # Cập nhật students_result với tất cả dữ liệu
-                        students_result['data'] = {
-                            'data': all_students_list,
-                            'totalCount': students_count
-                        }
-                        
-                        basic_results['students_data'] = True
-                        basic_results['students_result'] = students_result
-                        basic_results['data_summary']['students'] = {
-                            'total': students_count,
-                            'retrieved': len(all_students_list)
-                        }
-                        
-                        print_status(f"✅ Hoàn thành lấy danh sách học sinh: {len(all_students_list)}/{students_count}", "success")
-                    else:
-                        basic_results['students_data'] = True  # Vẫn coi là thành công vì API hoạt động bình thường
-                        basic_results['students_result'] = students_result
-                        basic_results['data_summary']['students'] = {
-                            'total': 0,
-                            'retrieved': 0
-                        }
-                        print_status("⚠️ Không có học sinh nào trong hệ thống - Đây là trường hợp hợp lệ", "warning")
-                else:
-                    print_status("⚠️ Định dạng dữ liệu học sinh không đúng", "warning")
-            else:
-                print_status(f"❌ Lỗi lấy danh sách học sinh: {students_result.get('error')}", "error")
-            
-            return basic_results
-            
-        except Exception as e:
-            print_status(f"❌ Lỗi trong các bước cơ bản: {e}", "error")
-            return None
     
     def _download_import_file(self, school_name, drive_link, ui_mode=False):
         """Tải file import từ Google Drive với pattern 'import_*'"""
@@ -3545,44 +3153,6 @@ class SchoolProcessApp:
             print(f"   '{date_str}' → '{normalized}'")
         
         print("\n✅ Test completed. Các ngày hợp lệ sẽ được chuyển về format YYYY-MM-DD")
-    
-    def test_date_format_detection(self):
-        """Test method để kiểm tra việc phát hiện format ngày tháng"""
-        print_separator("TEST DATE FORMAT DETECTION")
-        
-        # Tạo test dataframe giả lập
-        test_data = {
-            'Họ tên': ['Nguyễn Văn A', 'Trần Thị B', 'Lê Văn C', 'Phạm Thị D'],
-            'Ngày sinh': ['10/6/2007', '24/12/1995', '15/8/2000', '3/2/1998']  # DD/MM/YYYY format
-        }
-        test_df = pd.DataFrame(test_data)
-        
-        print("🔍 TEST DATA (DD/MM/YYYY):")
-        print(test_df)
-        print()
-        
-        # Test format detection
-        format_analysis = self._analyze_date_format_in_import(test_df, 'Ngày sinh')
-        
-        print("📊 FORMAT ANALYSIS RESULTS:")
-        if format_analysis:
-            print(f"   Most likely format: {format_analysis.get('most_likely_format')}")
-            print(f"   Confidence score: {format_analysis.get('confidence_score')}%")
-            print(f"   Format scores: {format_analysis.get('format_scores', {})}")
-            print(f"   Samples analyzed: {format_analysis.get('sample_count')}")
-        else:
-            print("   ❌ No format detected")
-        
-        print("\n🔄 TEST STANDARDIZATION:")
-        standardized_df = self._standardize_import_date_formats(test_df.copy())
-        print(standardized_df)
-        
-        print("\n✅ Test completed. Format detection và standardization hoạt động đúng.")
-    
-    # Legacy method - replaced by _save_unified_workflow_data
-    # def _save_filtered_workflow_data(self, workflow_results, comparison_results):
-    #     """Deprecated: Use _save_unified_workflow_data instead"""
-    #     pass
     
     def _print_workflow_summary_case_2(self, results):
         """In tóm tắt kết quả workflow Case 2"""

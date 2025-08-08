@@ -31,8 +31,21 @@ from converters import JSONToExcelTemplateConverter
 class SchoolProcessMainWindow:
     """Main Window cho School Process Application"""
     
+    # Singleton pattern
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(SchoolProcessMainWindow, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self):
         """Khởi tạo main window"""
+        # Chỉ khởi tạo một lần
+        if hasattr(self, '_initialized'):
+            return
+        self._initialized = True
+        
         self.config = get_config()
         self.setup_main_window()
         self.setup_variables()
@@ -127,6 +140,19 @@ class SchoolProcessMainWindow:
         self.current_workflow = None
         self.client = None
         
+        # School year state - mặc định là 2025
+        self.current_school_year = 2025
+    
+    @property
+    def current_year(self):
+        """Property để compatibility với app.py"""
+        return self.current_school_year
+    
+    @current_year.setter
+    def current_year(self, value):
+        """Setter cho current_year"""
+        self.current_school_year = value
+        
     def setup_ui(self):
         """Thiết lập giao diện người dùng"""
         # Main container
@@ -191,24 +217,52 @@ class SchoolProcessMainWindow:
         
     def create_left_panel(self):
         """Tạo panel menu bên trái"""
-        left_frame = ttk.LabelFrame(self.main_frame, text="Chức năng", padding="10")
+
+        left_frame = ttk.LabelFrame(self.main_frame, text="CHỨC NĂNG", padding="10")
         left_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
         left_frame.configure(width=300)
         left_frame.grid_propagate(False)
         
+        # School year section
+        year_label = ttk.Label(left_frame, text="Thay đổi năm học:", font=('Segoe UI', 9))
+        year_label.pack(anchor='w', pady=(0, 5))
+        
+        # Frame cho các button năm học
+        year_frame = ttk.Frame(left_frame)
+        year_frame.pack(fill='x', pady=(0, 10))
+        
+        self.btn_change_year_2024 = ttk.Button(year_frame,
+                                              text="2024-2025",
+                                              command=lambda: self.change_school_year(2024),
+                                              width=12)
+        self.btn_change_year_2024.pack(side='left', fill='x', expand=True, padx=(0, 2))
+        
+        self.btn_change_year_2025 = ttk.Button(year_frame,
+                                              text="2025-2026", 
+                                              command=lambda: self.change_school_year(2025),
+                                              width=12)
+        self.btn_change_year_2025.pack(side='left', fill='x', expand=True, padx=(2, 0))
+        
+        # Update button states để hiển thị active year
+        self.update_year_button_states()
+
+        # Separator
+        separator1 = ttk.Separator(left_frame, orient='horizontal')
+        separator1.pack(fill='x', pady=(0, 15))
+
         # Workflow section
-        workflow_label = ttk.Label(left_frame, text="Quy trình xử lý", style='Heading.TLabel')
+        workflow_label = ttk.Label(left_frame, text="Export:", style='Heading.TLabel')
         workflow_label.pack(pady=(0, 10), anchor='w')
         
         # Workflow buttons
         self.btn_case1 = ttk.Button(left_frame,
-                                   text="Export toàn bộ dữ liệu",
+                                   text="Toàn bộ dữ liệu",
                                    style='Primary.TButton',
                                    command=self.start_workflow_case1)
         self.btn_case1.pack(fill='x', pady=(0, 5))
         
         self.btn_case2 = ttk.Button(left_frame,
-                                   text="Export theo dữ liệu file import",
+                                   text="Theo dữ liệu file import",
                                    style='Primary.TButton',
                                    command=self.start_workflow_case2)
         self.btn_case2.pack(fill='x', pady=(0, 15))
@@ -218,31 +272,19 @@ class SchoolProcessMainWindow:
         separator1.pack(fill='x', pady=(0, 15))
         
         # Individual functions
-        functions_label = ttk.Label(left_frame, text="Chức năng khác", style='Heading.TLabel')
+        functions_label = ttk.Label(left_frame, text="Xuất dữ liệu:", style='Heading.TLabel')
         functions_label.pack(pady=(0, 10), anchor='w')
         
+        # Data retrieval section         
         self.btn_get_teachers = ttk.Button(left_frame,
-                                          text="👨‍🏫 Lấy danh sách Giáo viên",
+                                          text="Lấy danh sách Giáo viên",
                                           command=self.get_teachers_data)
         self.btn_get_teachers.pack(fill='x', pady=(0, 5))
         
         self.btn_get_students = ttk.Button(left_frame,
-                                          text="👨‍🎓 Lấy danh sách Học sinh",
+                                          text="Lấy danh sách Học sinh",
                                           command=self.get_students_data)
         self.btn_get_students.pack(fill='x', pady=(0, 5))
-        
-        # Frame cho các button năm học
-        # year_frame = ttk.Frame(left_frame)
-        # year_frame.pack(fill='x', pady=(5, 5))
-        
-        # self.btn_change_year_2024 = ttk.Button(year_frame,
-        #                                       text="📅 Chuyển năm 2024",
-        #                                       command=lambda: self.change_school_year(2024))
-        # self.btn_change_year_2024.pack(side='left', fill='x', expand=True, padx=(0, 2))
-        
-        # self.btn_change_year_2025 = ttk.Button(year_frame,
-        #                                       text="📅 Chuyển năm 2025", 
-        #                                       command=lambda: self.change_school_year(2025))
         # self.btn_change_year_2025.pack(side='left', fill='x', expand=True, padx=(2, 0))
         
         # self.btn_convert_excel = ttk.Button(left_frame,
@@ -779,50 +821,154 @@ class SchoolProcessMainWindow:
         if self.is_processing:
             messagebox.showwarning("Cảnh báo", "Hệ thống đang xử lý. Vui lòng đợi.")
             return
+        
+        # Kiểm tra xem có sheets_viewer và có row được chọn không
+        if not hasattr(self, 'sheets_viewer'):
+            messagebox.showerror("Lỗi", "Google Sheets viewer chưa được khởi tạo.")
+            return
+            
+        selected_row_data = self.sheets_viewer.get_selected_row_data()
+        if not selected_row_data:
+            messagebox.showwarning("Cảnh báo", 
+                                 "Vui lòng chọn một row (trường học) trong Google Sheets trước khi lấy dữ liệu.\n\n" +
+                                 "Click vào số thứ tự hàng bên trái để chọn row.")
+            return
+        
+        # Hiển thị thông tin row được chọn
+        row_info = self.sheets_viewer.get_selected_row_info()
+        self.log_message(f"📋 Lấy dữ liệu giáo viên từ trường: {row_info}", "info")
             
         self.log_message("Bắt đầu lấy dữ liệu giáo viên...", "info")
         
-        thread = threading.Thread(target=self._get_teachers_data_thread)
+        thread = threading.Thread(target=self._get_teachers_data_thread, args=(selected_row_data,))
         thread.daemon = True
         thread.start()
         
-    def _get_teachers_data_thread(self):
-        """Lấy dữ liệu giáo viên trong thread"""
+    def _get_teachers_data_thread(self, selected_school_data):
+        """Lấy dữ liệu giáo viên trong thread với logic year-aware và export Excel"""
         try:
             self.is_processing = True
             self.update_progress_safe(10, "Đang kết nối OnLuyen API...")
             
-            client = OnLuyenAPIClient()
+            # Import app để sử dụng logic tương tự workflow
+            from app import SchoolProcessApp
+            app = SchoolProcessApp()
             
-            # Load access_token từ file login
-            self.update_progress_safe(20, "Đang load access token...")
-            if not client.load_token_from_login_file():
-                self.log_message_safe("Không tìm thấy access token. Vui lòng login trước.", "error")
+            # Lấy thông tin trường
+            school_name = selected_school_data.get('Tên trường', 'N/A')
+            admin_email = selected_school_data.get('Admin', '').strip()
+            password = selected_school_data.get('Mật khẩu', '').strip()
+            
+            if not admin_email or not password:
+                self.log_message_safe(f"❌ Thiếu thông tin Admin email hoặc Mật khẩu", "error")
                 return
             
-            self.update_progress_safe(30, "Đang lấy dữ liệu giáo viên...")
+            self.update_progress_safe(20, "Đang xác thực token...")
+            self.log_message_safe(f"🎯 Sử dụng năm học: {self.current_school_year}", "info")
+            
+            # Sử dụng logic tương tự workflow để đảm bảo token đúng năm
+            has_data, login_file_path, token_valid = app._check_existing_school_login_data(admin_email, self.current_school_year)
+            
+            auth_success = False
+            client = None
+            
+            if has_data and token_valid:
+                self.log_message_safe(f"✅ Tìm thấy dữ liệu JSON hợp lệ cho trường {school_name}", "info")
+                
+                from config.onluyen_api import OnLuyenAPIClient
+                client = OnLuyenAPIClient()
+                if client.load_token_from_login_file(admin_email, self.current_school_year):
+                    self.log_message_safe(f"✅ Đã load token từ file cho năm {self.current_school_year}", "info")
+                    
+                    # Test token và kiểm tra năm học
+                    test_result = client.get_teachers(page_size=1)
+                    if test_result['success']:
+                        token_info = client.get_current_school_year_info()
+                        if token_info.get('success') and token_info.get('school_year'):
+                            actual_year = token_info.get('school_year')
+                            if actual_year == self.current_school_year:
+                                auth_success = True
+                                self.log_message_safe(f"✅ Token hợp lệ cho năm {actual_year}", "success")
+                            else:
+                                self.log_message_safe(f"⚠️ Token hiện có cho năm {actual_year}, cần token cho năm {self.current_school_year}", "warning")
+                                has_data = False
+                        else:
+                            self.log_message_safe("⚠️ Không thể xác định năm học từ token, cần login lại", "warning")
+                            has_data = False
+                    else:
+                        self.log_message_safe("⚠️ Token đã hết hạn, cần login lại", "warning")
+                        has_data = False
+                else:
+                    self.log_message_safe("⚠️ Không thể load token từ file, cần login lại", "warning")
+                    has_data = False
+            
+            if not has_data or not token_valid or not auth_success:
+                self.update_progress_safe(30, "Đang thực hiện login...")
+                self.log_message_safe(f"🔐 Thực hiện login mới cho năm {self.current_school_year}...", "info")
+                
+                client, auth_success, login_result = app._get_authenticated_client(admin_email, password, self.current_school_year, ui_mode=True)
+                
+                if not auth_success:
+                    self.log_message_safe(f"❌ Xác thực thất bại: {login_result.get('error', 'Unknown error')}", "error")
+                    return
+                
+                # Lưu thông tin login mới
+                if login_result.get('data', {}).get('source') != 'login_file':
+                    self.log_message_safe("💾 Lưu thông tin login mới...", "info")
+                    app._save_successful_login_info(school_name, admin_email, login_result, '', password, self.current_school_year)
+                    self.log_message_safe(f"✅ Đã tạo/cập nhật dữ liệu JSON cho trường {school_name}", "success")
+            
+            self.update_progress_safe(50, "Đang lấy dữ liệu giáo viên...")
+            self.log_message_safe(f"📋 Đang lấy danh sách giáo viên cho năm {self.current_school_year}...", "info")
+            
+            # Lấy dữ liệu giáo viên
             result = client.get_teachers(page_size=1000)
             
             if result['success']:
-                self.update_progress_safe(80, "Đang xử lý dữ liệu...")
+                self.update_progress_safe(70, "Đang xử lý dữ liệu...")
                 data = result.get('data', {})
-                teachers_list = data.get('data', []) if isinstance(data, dict) else data
                 
-                self.update_progress_safe(100, "Hoàn thành")
-                self.log_message_safe(f"✅ Lấy thành công {len(teachers_list)} giáo viên", "success")
+                if isinstance(data, dict) and 'data' in data:
+                    teachers_list = data['data']
+                    teachers_count = data.get('totalCount', len(teachers_list))
+                else:
+                    teachers_list = data if isinstance(data, list) else []
+                    teachers_count = len(teachers_list)
                 
-                # Hiển thị thông tin năm học từ token nếu có
-                self.root.after(0, self._log_current_school_year_info)
+                self.log_message_safe(f"✅ Lấy thành công {len(teachers_list)}/{teachers_count} giáo viên", "success")
                 
+                if teachers_list:
+                    self.update_progress_safe(80, "Đang tạo file Excel...")
+                    
+                    # Tạo file Excel từ dữ liệu sử dụng helper function
+                    from .ui_helpers import export_teachers_to_excel
+                    excel_file_path = export_teachers_to_excel(
+                        teachers_list, school_name, self.current_school_year, 
+                        log_callback=self.log_message_safe
+                    )
+                    
+                    if excel_file_path:
+                        self.update_progress_safe(100, "Hoàn thành")
+                        self.log_message_safe(f"✅ Đã tạo file Excel: {excel_file_path}", "success")
+                        
+                        # Hỏi có muốn mở file không
+                        from .ui_helpers import show_file_completion_dialog
+                        self.root.after(0, lambda: show_file_completion_dialog(
+                            excel_file_path, "Danh sách Giáo viên", self.log_message_safe
+                        ))
+                    else:
+                        self.log_message_safe("❌ Lỗi tạo file Excel", "error")
+                else:
+                    self.update_progress_safe(100, "Hoàn thành")
+                    self.log_message_safe("⚠️ Không có giáo viên nào trong danh sách", "warning")
             else:
                 error_msg = result.get('error', 'Unknown error')
-                if 'token' in error_msg.lower() or 'unauthorized' in error_msg.lower():
-                    self.log_message_safe("⚠️ Access token có thể đã hết hạn. Vui lòng login lại.", "warning")
-                else:
-                    self.log_message_safe(f"❌ Lỗi lấy dữ liệu giáo viên: {error_msg}", "error")
+                self.log_message_safe(f"❌ Lỗi lấy dữ liệu giáo viên: {error_msg}", "error")
                 
         except Exception as e:
             self.log_message_safe(f"❌ Lỗi: {str(e)}", "error")
+            import traceback
+            traceback.print_exc()
         finally:
             self.is_processing = False
             
@@ -831,50 +977,181 @@ class SchoolProcessMainWindow:
         if self.is_processing:
             messagebox.showwarning("Cảnh báo", "Hệ thống đang xử lý. Vui lòng đợi.")
             return
+        
+        # Kiểm tra xem có sheets_viewer và có row được chọn không
+        if not hasattr(self, 'sheets_viewer'):
+            messagebox.showerror("Lỗi", "Google Sheets viewer chưa được khởi tạo.")
+            return
+            
+        selected_row_data = self.sheets_viewer.get_selected_row_data()
+        if not selected_row_data:
+            messagebox.showwarning("Cảnh báo", 
+                                 "Vui lòng chọn một row (trường học) trong Google Sheets trước khi lấy dữ liệu.\n\n" +
+                                 "Click vào số thứ tự hàng bên trái để chọn row.")
+            return
+        
+        # Hiển thị thông tin row được chọn
+        row_info = self.sheets_viewer.get_selected_row_info()
+        self.log_message(f"📋 Lấy dữ liệu học sinh từ trường: {row_info}", "info")
             
         self.log_message("Bắt đầu lấy dữ liệu học sinh...", "info")
         
-        thread = threading.Thread(target=self._get_students_data_thread)
+        thread = threading.Thread(target=self._get_students_data_thread, args=(selected_row_data,))
         thread.daemon = True
         thread.start()
         
-    def _get_students_data_thread(self):
-        """Lấy dữ liệu học sinh trong thread"""
+    def _get_students_data_thread(self, selected_school_data):
+        """Lấy dữ liệu học sinh trong thread với logic year-aware và export Excel"""
         try:
             self.is_processing = True
             self.update_progress_safe(10, "Đang kết nối OnLuyen API...")
             
-            client = OnLuyenAPIClient()
+            # Import app để sử dụng logic tương tự workflow
+            from app import SchoolProcessApp
+            app = SchoolProcessApp()
             
-            # Load access_token từ file login
-            self.update_progress_safe(20, "Đang load access token...")
-            if not client.load_token_from_login_file():
-                self.log_message_safe("Không tìm thấy access token. Vui lòng login trước.", "error")
+            # Lấy thông tin trường
+            school_name = selected_school_data.get('Tên trường', 'N/A')
+            admin_email = selected_school_data.get('Admin', '').strip()
+            password = selected_school_data.get('Mật khẩu', '').strip()
+            
+            if not admin_email or not password:
+                self.log_message_safe(f"❌ Thiếu thông tin Admin email hoặc Mật khẩu", "error")
                 return
             
-            self.update_progress_safe(30, "Đang lấy dữ liệu học sinh...")
-            result = client.get_students(page_index=1, page_size=5000)
+            self.update_progress_safe(20, "Đang xác thực token...")
+            self.log_message_safe(f"🎯 Sử dụng năm học: {self.current_school_year}", "info")
             
-            if result['success']:
-                self.update_progress_safe(80, "Đang xử lý dữ liệu...")
-                data = result.get('data', {})
-                students_list = data.get('data', []) if isinstance(data, dict) else data
+            # Sử dụng logic tương tự workflow để đảm bảo token đúng năm
+            has_data, login_file_path, token_valid = app._check_existing_school_login_data(admin_email, self.current_school_year)
+            
+            auth_success = False
+            client = None
+            
+            if has_data and token_valid:
+                self.log_message_safe(f"✅ Tìm thấy dữ liệu JSON hợp lệ cho trường {school_name}", "info")
                 
-                self.update_progress_safe(100, "Hoàn thành")
-                self.log_message_safe(f"✅ Lấy thành công {len(students_list)} học sinh", "success")
-                
-                # Hiển thị thông tin năm học từ token nếu có
-                self.root.after(0, self._log_current_school_year_info)
-                
-            else:
-                error_msg = result.get('error', 'Unknown error')
-                if 'token' in error_msg.lower() or 'unauthorized' in error_msg.lower():
-                    self.log_message_safe("⚠️ Access token có thể đã hết hạn. Vui lòng login lại.", "warning")
+                from config.onluyen_api import OnLuyenAPIClient
+                client = OnLuyenAPIClient()
+                if client.load_token_from_login_file(admin_email, self.current_school_year):
+                    self.log_message_safe(f"✅ Đã load token từ file cho năm {self.current_school_year}", "info")
+                    
+                    # Test token và kiểm tra năm học
+                    test_result = client.get_students(page_index=1, page_size=1)
+                    if test_result['success']:
+                        token_info = client.get_current_school_year_info()
+                        if token_info.get('success') and token_info.get('school_year'):
+                            actual_year = token_info.get('school_year')
+                            if actual_year == self.current_school_year:
+                                auth_success = True
+                                self.log_message_safe(f"✅ Token hợp lệ cho năm {actual_year}", "success")
+                            else:
+                                self.log_message_safe(f"⚠️ Token hiện có cho năm {actual_year}, cần token cho năm {self.current_school_year}", "warning")
+                                has_data = False
+                        else:
+                            self.log_message_safe("⚠️ Không thể xác định năm học từ token, cần login lại", "warning")
+                            has_data = False
+                    else:
+                        self.log_message_safe("⚠️ Token đã hết hạn, cần login lại", "warning")
+                        has_data = False
                 else:
-                    self.log_message_safe(f"❌ Lỗi lấy dữ liệu học sinh: {error_msg}", "error")
+                    self.log_message_safe("⚠️ Không thể load token từ file, cần login lại", "warning")
+                    has_data = False
+            
+            if not has_data or not token_valid or not auth_success:
+                self.update_progress_safe(30, "Đang thực hiện login...")
+                self.log_message_safe(f"🔐 Thực hiện login mới cho năm {self.current_school_year}...", "info")
+                
+                client, auth_success, login_result = app._get_authenticated_client(admin_email, password, self.current_school_year, ui_mode=True)
+                
+                if not auth_success:
+                    self.log_message_safe(f"❌ Xác thực thất bại: {login_result.get('error', 'Unknown error')}", "error")
+                    return
+                
+                # Lưu thông tin login mới
+                if login_result.get('data', {}).get('source') != 'login_file':
+                    self.log_message_safe("💾 Lưu thông tin login mới...", "info")
+                    app._save_successful_login_info(school_name, admin_email, login_result, '', password, self.current_school_year)
+                    self.log_message_safe(f"✅ Đã tạo/cập nhật dữ liệu JSON cho trường {school_name}", "success")
+            
+            self.update_progress_safe(50, "Đang lấy dữ liệu học sinh...")
+            self.log_message_safe(f"📋 Đang lấy danh sách học sinh cho năm {self.current_school_year}...", "info")
+            
+            # Lấy dữ liệu học sinh (có thể cần nhiều lần gọi API)
+            all_students_list = []
+            page_index = 1
+            page_size = 1000
+            total_students = 0
+            
+            while True:
+                result = client.get_students(page_index=page_index, page_size=page_size)
+                
+                if not result['success']:
+                    if page_index == 1:
+                        # Lỗi ngay từ lần đầu
+                        error_msg = result.get('error', 'Unknown error')
+                        self.log_message_safe(f"❌ Lỗi lấy dữ liệu học sinh: {error_msg}", "error")
+                        return
+                    else:
+                        # Đã lấy được một phần, dừng lại
+                        break
+                
+                data = result.get('data', {})
+                if isinstance(data, dict) and 'data' in data:
+                    students_batch = data['data']
+                    if page_index == 1:
+                        total_students = data.get('totalCount', len(students_batch))
+                        self.log_message_safe(f"📊 Tổng số học sinh: {total_students}", "info")
+                    
+                    all_students_list.extend(students_batch)
+                    self.log_message_safe(f"   ✅ Lấy được batch {page_index}: {len(students_batch)} học sinh", "info")
+                    
+                    # Update progress
+                    progress = 50 + (len(all_students_list) / max(total_students, 1)) * 20
+                    self.update_progress_safe(min(progress, 70), f"Đã lấy {len(all_students_list)}/{total_students} học sinh...")
+                    
+                    # Kiểm tra xem còn dữ liệu không
+                    if len(students_batch) < page_size or len(all_students_list) >= total_students:
+                        break
+                        
+                    page_index += 1
+                else:
+                    # Format dữ liệu không đúng
+                    if page_index == 1:
+                        students_list = data if isinstance(data, list) else []
+                        all_students_list.extend(students_list)
+                    break
+            
+            if all_students_list:
+                self.update_progress_safe(80, "Đang tạo file Excel...")
+                self.log_message_safe(f"✅ Lấy thành công {len(all_students_list)} học sinh", "success")
+                
+                # Tạo file Excel từ dữ liệu sử dụng helper function
+                from .ui_helpers import export_students_to_excel
+                excel_file_path = export_students_to_excel(
+                    all_students_list, school_name, self.current_school_year,
+                    log_callback=self.log_message_safe
+                )
+                
+                if excel_file_path:
+                    self.update_progress_safe(100, "Hoàn thành")
+                    self.log_message_safe(f"✅ Đã tạo file Excel: {excel_file_path}", "success")
+                    
+                    # Hỏi có muốn mở file không
+                    from .ui_helpers import show_file_completion_dialog
+                    self.root.after(0, lambda: show_file_completion_dialog(
+                        excel_file_path, "Danh sách Học sinh", self.log_message_safe
+                    ))
+                else:
+                    self.log_message_safe("❌ Lỗi tạo file Excel", "error")
+            else:
+                self.update_progress_safe(100, "Hoàn thành")
+                self.log_message_safe("⚠️ Không có học sinh nào trong danh sách", "warning")
                 
         except Exception as e:
             self.log_message_safe(f"❌ Lỗi: {str(e)}", "error")
+            import traceback
+            traceback.print_exc()
         finally:
             self.is_processing = False
             
@@ -942,44 +1219,142 @@ class SchoolProcessMainWindow:
                 tokens = login_data.get('tokens', {})
                 if tokens.get('access_token'):
                     self.log_message("🔑 Tìm thấy access token từ phiên đăng nhập trước", "info")
+                    
+                    # Phát hiện năm học từ token
+                    detected_year = self._detect_school_year_from_token(tokens.get('access_token'))
+                    if detected_year:
+                        self.current_school_year = detected_year
+                        self.update_year_button_states()
+                    
                     self._log_current_school_year_info()
                 else:
                     self.log_message("ℹ️ Chưa có access token. Vui lòng login hoặc thực hiện workflow để lấy dữ liệu.", "info")
+                    self.log_message(f"📅 Năm học mặc định: {self.current_school_year}", "info")
             else:
                 self.log_message("ℹ️ Chưa có phiên đăng nhập nào. Vui lòng thực hiện workflow để bắt đầu.", "info")
+                self.log_message(f"📅 Năm học mặc định: {self.current_school_year}", "info")
                 
         except Exception as e:
             # Không log lỗi này
             pass
     
+    def _detect_school_year_from_token(self, access_token):
+        """Phát hiện năm học từ access token"""
+        try:
+            # Decode JWT token manually (chỉ lấy payload, không verify)
+            parts = access_token.split('.')
+            if len(parts) >= 2:
+                # Decode payload (part 1)
+                payload = parts[1]
+                # Thêm padding nếu cần
+                padding = len(payload) % 4
+                if padding:
+                    payload += '=' * (4 - padding)
+                
+                decoded_bytes = base64.b64decode(payload)
+                decoded = json.loads(decoded_bytes.decode('utf-8'))
+                
+                school_year = decoded.get('SchoolYear')
+                if school_year:
+                    # Extract year from format like "2024-2025" -> 2024
+                    if '-' in str(school_year):
+                        return int(str(school_year).split('-')[0])
+                    else:
+                        return int(school_year)
+                        
+        except Exception as e:
+            pass
+        return None
+    
+    def update_year_button_states(self):
+        """Cập nhật trạng thái active của các button năm học"""
+        # Reset tất cả button về trạng thái normal
+        self.btn_change_year_2024.configure(style='TButton')
+        self.btn_change_year_2025.configure(style='TButton')
+        
+        # Set button active cho năm hiện tại
+        if self.current_school_year == 2024:
+            self.btn_change_year_2024.configure(style='Success.TButton')
+            self.btn_change_year_2024.configure(text="✓ 2024-2025")
+            self.btn_change_year_2025.configure(text="2025-2026")
+        else:  # 2025 hoặc mặc định
+            self.btn_change_year_2025.configure(style='Success.TButton')
+            self.btn_change_year_2025.configure(text="✓ 2025-2026")
+            self.btn_change_year_2024.configure(text="2024-2025")
+
     def change_school_year(self, year):
         """Thay đổi năm học"""
         if self.is_processing:
             messagebox.showwarning("Cảnh báo", "Hệ thống đang xử lý. Vui lòng đợi.")
             return
+        
+        # Kiểm tra xem có sheets_viewer và có row được chọn không
+        if not hasattr(self, 'sheets_viewer'):
+            messagebox.showerror("Lỗi", "Google Sheets viewer chưa được khởi tạo.")
+            return
+            
+        selected_row_data = self.sheets_viewer.get_selected_row_data()
+        if not selected_row_data:
+            messagebox.showwarning("Cảnh báo", 
+                                 "Vui lòng chọn một row (trường học) trong Google Sheets trước khi thay đổi năm học.\n\n" +
+                                 "Click vào số thứ tự hàng bên trái để chọn row.")
+            return
+        
+        # Hiển thị thông tin row được chọn
+        row_info = self.sheets_viewer.get_selected_row_info()
+        self.log_message(f"📋 Trường được chọn: {row_info}", "info")
+        
+        # Lưu trạng thái trước đó để restore nếu có lỗi
+        self.previous_school_year = self.current_school_year
+        
+        # Cập nhật current year
+        self.current_school_year = year
+        self.update_year_button_states()
             
         self.log_message(f"Bắt đầu thay đổi năm học sang {year}...", "info")
         
-        thread = threading.Thread(target=self._change_school_year_thread, args=(year,))
+        thread = threading.Thread(target=self._change_school_year_thread, args=(year, selected_row_data))
         thread.daemon = True
         thread.start()
         
-    def _change_school_year_thread(self, year):
+    def _change_school_year_thread(self, year, selected_school_data):
         """Thay đổi năm học trong thread"""
         try:
             self.is_processing = True
             self.update_progress_safe(10, f"Đang thay đổi năm học sang {year}...")
             
+            # Import và khởi tạo OnLuyen client
             client = OnLuyenAPIClient()
             
-            # Load access_token từ file login
-            self.update_progress_safe(20, "Đang load access token...")
-            if not client.load_token_from_login_file():
-                self.log_message_safe("Không tìm thấy access token. Vui lòng login trước.", "error")
+            # Lấy thông tin login từ selected_school_data
+            self.update_progress_safe(20, "Đang thực hiện login...")
+            username = selected_school_data.get('Admin', '').strip()
+            password = selected_school_data.get('Mật khẩu', '').strip()
+            
+            # Fallback cho các tên cột khác có thể có
+            if not username:
+                username = selected_school_data.get('Username', '').strip()
+            if not password:
+                password = selected_school_data.get('Password', '').strip()
+            
+            if not username or not password:
+                self.log_message_safe(f"❌ Không tìm thấy thông tin login trong dữ liệu trường được chọn", "error")
+                self.log_message_safe(f"🔍 Dữ liệu có sẵn: {list(selected_school_data.keys())}", "info")
+                self.log_message_safe(f"🔍 Admin: '{username}', Mật khẩu: '{password}'", "info")
                 return
             
+            self.log_message_safe(f"🔑 Đang kiểm tra token cho năm {year}...", "info")
+            
+            # Sử dụng ensure_valid_token để tự động login nếu cần
+            if not client.ensure_valid_token(username, password, year):
+                self.log_message_safe("❌ Không thể lấy token hợp lệ", "error")
+                return
+            
+            self.log_message_safe("✅ Token hợp lệ!", "success")
+            self.update_progress_safe(40, "Login thành công, đang thay đổi năm học...")
+            
             # Thay đổi năm học
-            self.update_progress_safe(50, f"Đang gửi yêu cầu thay đổi năm {year}...")
+            self.update_progress_safe(60, f"Đang gửi yêu cầu thay đổi năm {year}...")
             result = client.change_year_v2(year)
             
             if result['success']:
@@ -994,21 +1369,28 @@ class SchoolProcessMainWindow:
                 # Hiển thị thông báo thành công trong main thread
                 self.root.after(0, lambda: messagebox.showinfo("Thành công", 
                                   f"Đã thay đổi năm học sang {year} thành công!\n\n"
+                                  f"Trường: {selected_school_data.get('Tên trường', 'N/A')}\n"
+                                  f"Username: {username}\n"
                                   f"Access token đã được cập nhật và lưu vào file login."))
                 
             else:
                 error_msg = result.get('error', 'Unknown error')
-                if 'token' in error_msg.lower() or 'unauthorized' in error_msg.lower():
-                    self.log_message_safe("⚠️ Access token có thể đã hết hạn. Vui lòng login lại.", "warning")
-                    self.root.after(0, lambda: messagebox.showwarning("Cảnh báo", 
-                                         "Access token có thể đã hết hạn.\nVui lòng thực hiện login lại."))
-                else:
-                    self.log_message_safe(f"❌ Lỗi thay đổi năm học: {error_msg}", "error")
-                    self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Lỗi thay đổi năm học:\n{error_msg}"))
+                self.log_message_safe(f"❌ Lỗi thay đổi năm học: {error_msg}", "error")
+                self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Lỗi thay đổi năm học:\n{error_msg}"))
+                
+                # Nếu có lỗi, reset lại button state về trạng thái trước
+                if hasattr(self, 'previous_school_year'):
+                    self.current_school_year = self.previous_school_year
+                    self.root.after(0, self.update_year_button_states)
                 
         except Exception as e:
             self.log_message_safe(f"❌ Lỗi: {str(e)}", "error")
             self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Có lỗi xảy ra:\n{str(e)}"))
+            
+            # Reset lại button state nếu có lỗi
+            if hasattr(self, 'previous_school_year'):
+                self.current_school_year = self.previous_school_year
+                self.root.after(0, self.update_year_button_states)
         finally:
             self.is_processing = False
 

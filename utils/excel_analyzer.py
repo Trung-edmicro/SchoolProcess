@@ -146,7 +146,7 @@ def main():
     
     # Lấy thư mục gốc của project
     project_root = Path(__file__).parent.parent
-    template_file = project_root / "data" / "temp" / "Template_Import.xlsx"
+    template_file = project_root / "data" / "temp" / "Temlate_DSGV.xlsx"
     
     if template_file.exists():
         print(f"📄 Tìm thấy file template: {template_file}")

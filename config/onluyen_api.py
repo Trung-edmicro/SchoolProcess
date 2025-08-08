@@ -5,13 +5,15 @@ Author: Assistant
 Date: 2025-07-26
 """
 
-from typing import Dict, Any, Optional
 import requests
-from dataclasses import dataclass
-from urllib.parse import urljoin
 import json
 import os
+import base64
+import urllib3
 
+from typing import Dict, Any, Optional
+from dataclasses import dataclass
+from urllib.parse import urljoin
 
 @dataclass
 class APIEndpoint:
@@ -174,7 +176,6 @@ class OnLuyenAPIClient:
         # Tạm thời bỏ qua SSL verification cho testing
         self.session.verify = False
         # Tắt cảnh báo SSL
-        import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         self.auth_token = None
         
@@ -288,7 +289,7 @@ class OnLuyenAPIClient:
                             # Fallback: try to decode as-is
                             response_text = response.text
                         except Exception as e:
-                            print(f"   ❌ Brotli decompression failed: {e}")
+                            # print(f"   ❌ Brotli decompression failed: {e}")
                             response_text = response.text
                     elif content_encoding == 'gzip':
                         # Requests tự động xử lý gzip
@@ -339,6 +340,7 @@ class OnLuyenAPIClient:
     def change_year_v2(self, year: int, save_to_login_file: bool = True, login_file_path: str = None) -> Dict[str, Any]:
         """
         Thay đổi năm học bằng endpoint chính xác từ browser headers
+        CHỈ GỌI API change year, KHÔNG login lại
         
         Args:
             year (int): Năm học mới (ví dụ: 2024, 2025)
@@ -354,6 +356,17 @@ class OnLuyenAPIClient:
                 "error": "Chưa có access_token. Vui lòng đăng nhập trước khi thay đổi năm học",
                 "status_code": None,
                 "data": None
+            }
+        
+        # Kiểm tra năm học hiện tại
+        current_info = self.get_current_school_year_info()
+        if current_info.get('success') and current_info.get('school_year') == year:
+            print(f"ℹ️ Đã ở năm học {year}, không cần chuyển đổi")
+            return {
+                "success": True,
+                "message": f"Đã ở năm học {year}",
+                "status_code": 200,
+                "data": {"access_token": self.auth_token, "year": year}
             }
         
         # Sử dụng endpoint chính xác từ browser headers
@@ -372,15 +385,70 @@ class OnLuyenAPIClient:
         print(f"\n📅 Changing school year to: {year}")
         print(f"   📍 URL: {url}")
         print(f"   📋 Params: {params}")
-        print(f"   🔐 Headers: {list(headers.keys())}")
         
         try:
-            response = requests.post(url, headers=headers, params=params, timeout=30)
-            result = self._process_response(response)
+            response = requests.get(url, headers=headers, params=params, timeout=30, verify=False)
             
-            # Nếu thành công và có access_token mới, lưu vào file login
-            if result["success"] and save_to_login_file and result.get("data"):
-                self._update_login_file_with_new_token(result["data"], login_file_path, year)
+            print(f"\n📡 RESPONSE DEBUG:")
+            print(f"   Status Code: {response.status_code}")
+            print(f"   Content Length: {len(response.content)} bytes")
+            
+            # Xử lý response content với decompression
+            response_data = None
+            if response.content:
+                try:
+                    # Kiểm tra content encoding
+                    content_encoding = response.headers.get('content-encoding', '').lower()
+                    
+                    if content_encoding == 'br':
+                        # Xử lý Brotli compression
+                        try:
+                            import brotli
+                            decompressed_content = brotli.decompress(response.content)
+                            response_text = decompressed_content.decode('utf-8')
+                            print(f"   ✅ Brotli decompressed successfully")
+                        except ImportError:
+                            print(f"   ❌ Brotli library not available")
+                            response_text = response.text
+                        except Exception as e:
+                            # print(f"   ❌ Brotli decompression failed: {e}")
+                            response_text = response.text
+                    else:
+                        response_text = response.text
+                        print(f"   ✅ Response decoded successfully")
+                    
+                    print(f"   Response Content: {response_text[:200]}...")
+                    response_data = json.loads(response_text)
+                    print(f"   Response JSON Keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'Not a dict'}")
+                        
+                except json.JSONDecodeError as e:
+                    print(f"   JSON Parse Error: {e}")
+                    response_data = None
+                except Exception as e:
+                    print(f"   Content Processing Error: {e}")
+                    response_data = None
+            
+            result = {
+                "success": response.status_code == 200,
+                "status_code": response.status_code,
+                "data": response_data,
+                "error": None
+            }
+            
+            # Nếu thành công, cập nhật token mới và lưu vào file
+            if result["success"] and response_data and save_to_login_file:
+                new_access_token = response_data.get('access_token')
+                if new_access_token:
+                    # Cập nhật token trong client
+                    self.set_auth_token(new_access_token)
+                    print(f"✅ Đã cập nhật access_token mới cho năm {year}")
+                    
+                    # Lưu token mới vào file với cấu trúc multi-year
+                    self._update_login_file_with_new_token(response_data, login_file_path, year)
+                else:
+                    print(f"⚠️ API thành công nhưng không có access_token mới")
+            elif not result["success"]:
+                print(f"❌ Change year thất bại: {response_data}")
             
             return result
             
@@ -496,40 +564,78 @@ class OnLuyenAPIClient:
             with open(login_file_path, 'r', encoding='utf-8') as f:
                 login_data = json.load(f)
             
+            # Đảm bảo cấu trúc tokens_by_year tồn tại
+            if "tokens_by_year" not in login_data:
+                login_data["tokens_by_year"] = {}
+            
+            # Đảm bảo có year để cập nhật
+            if not year:
+                year = login_data.get("current_school_year", 2025)
+            
+            year_str = str(year)
+            
+            # Tạo hoặc cập nhật token info cho năm học cụ thể
+            if year_str not in login_data["tokens_by_year"]:
+                login_data["tokens_by_year"][year_str] = {}
+            
+            year_token = login_data["tokens_by_year"][year_str]
+            
             # Cập nhật tokens nếu có trong response
+            updated_fields = []
             if "access_token" in response_data:
-                login_data["tokens"]["access_token"] = response_data["access_token"]
-                print(f"✅ Updated access_token in login file")
+                year_token["access_token"] = response_data["access_token"]
+                updated_fields.append("access_token")
             
             if "refresh_token" in response_data:
-                login_data["tokens"]["refresh_token"] = response_data["refresh_token"]
-                print(f"✅ Updated refresh_token in login file")
+                year_token["refresh_token"] = response_data["refresh_token"]
+                updated_fields.append("refresh_token")
             
             if "expires_in" in response_data:
-                login_data["tokens"]["expires_in"] = response_data["expires_in"]
-                print(f"✅ Updated expires_in in login file")
+                year_token["expires_in"] = response_data["expires_in"]
+                updated_fields.append("expires_in")
             
             if "expires_at" in response_data:
-                login_data["tokens"]["expires_at"] = response_data["expires_at"]
-                print(f"✅ Updated expires_at in login file")
+                year_token["expires_at"] = response_data["expires_at"]
+                updated_fields.append("expires_at")
+            
+            if "userId" in response_data:
+                year_token["user_id"] = response_data["userId"]
+                updated_fields.append("user_id")
+            
+            if "display_name" in response_data:
+                year_token["display_name"] = response_data["display_name"]
+                updated_fields.append("display_name")
+            
+            if "account" in response_data:
+                year_token["account"] = response_data["account"]
+                updated_fields.append("account")
+            
+            # Cập nhật timestamp
+            year_token["last_updated"] = self._get_current_timestamp()
+            updated_fields.append("last_updated")
+            
+            # Cập nhật current_school_year
+            login_data["current_school_year"] = year
             
             # Thêm thông tin về việc thay đổi năm học
-            if year:
-                login_data["last_year_change"] = {
-                    "year": year,
-                    "timestamp": self._get_current_timestamp(),
-                    "status": "success"
-                }
-                print(f"✅ Added year change info: {year}")
+            login_data["last_year_change"] = {
+                "year": year,
+                "timestamp": self._get_current_timestamp(),
+                "status": "success",
+                "updated_fields": updated_fields
+            }
             
             # Lưu lại file
             with open(login_file_path, 'w', encoding='utf-8') as f:
                 json.dump(login_data, f, indent=2, ensure_ascii=False)
             
             print(f"✅ Login file updated successfully: {login_file_path}")
+            print(f"📅 Updated token fields for year {year}: {', '.join(updated_fields)}")
             
         except Exception as e:
             print(f"❌ Error updating login file: {e}")
+            import traceback
+            print(f"   Traceback: {traceback.format_exc()}")
     
     def _find_latest_login_file(self) -> str:
         """
@@ -558,6 +664,40 @@ class OnLuyenAPIClient:
         except Exception as e:
             print(f"❌ Error finding login file: {e}")
             return None
+
+    def _check_valid_tokens_for_years(self, admin_email: str) -> Dict[int, bool]:
+        """
+        Kiểm tra token hợp lệ cho tất cả các năm học
+        
+        Args:
+            admin_email (str): Email admin
+            
+        Returns:
+            Dict[int, bool]: Dictionary mapping năm học -> có token hợp lệ
+        """
+        valid_tokens = {}
+        years = [2024, 2025]
+        
+        for year in years:
+            # Backup current token
+            current_token = self.auth_token
+            
+            try:
+                if self.load_token_from_login_file(admin_email, year):
+                    valid_tokens[year] = True
+                    print(f"   ✅ Token hợp lệ cho năm {year}")
+                else:
+                    valid_tokens[year] = False
+                    print(f"   ❌ Token không hợp lệ cho năm {year}")
+            except Exception as e:
+                valid_tokens[year] = False
+                print(f"   ❌ Lỗi kiểm tra token năm {year}: {e}")
+            
+            # Restore original token
+            if current_token:
+                self.set_auth_token(current_token)
+        
+        return valid_tokens
     
     def _get_current_timestamp(self) -> str:
         """
@@ -569,43 +709,146 @@ class OnLuyenAPIClient:
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    def load_token_from_login_file(self, login_file_path: str = None) -> bool:
+    def load_token_from_login_file(self, admin_email: str = None, school_year: int = 2025, login_file_path: str = None) -> bool:
         """
-        Load access_token từ file login JSON
+        Load access_token từ file login JSON với hỗ trợ multi-year
         
         Args:
-            login_file_path (str, optional): Đường dẫn file login cụ thể.
-                                           Nếu None, sẽ tìm file login gần nhất
+            admin_email (str, optional): Email admin để tìm file login cụ thể
+            school_year (int, optional): Năm học cần load token. Default: 2025
+            login_file_path (str, optional): Đường dẫn file login cụ thể
             
         Returns:
             bool: True nếu load thành công, False nếu thất bại
         """
         try:
-            # Tìm file login gần nhất nếu không chỉ định
+            # Tìm file login
             if not login_file_path:
-                login_file_path = self._find_latest_login_file()
-            
-            if not login_file_path:
-                print("❌ Không tìm thấy file login để load token")
-                return False
+                if admin_email:
+                    # Tìm file login theo admin_email
+                    filename = f"onluyen_login_{admin_email.replace('@', '_').replace('.', '_')}.json"
+                    login_file_path = f"data/output/{filename}"
+                    
+                    if not os.path.exists(login_file_path):
+                        print(f"❌ Không tìm thấy file login cho {admin_email}")
+                        return False
+                else:
+                    # Tìm file login gần nhất
+                    login_file_path = self._find_latest_login_file()
+                    
+                    if not login_file_path:
+                        print("❌ Không tìm thấy file login để load token")
+                        return False
             
             # Đọc file login
             with open(login_file_path, 'r', encoding='utf-8') as f:
                 login_data = json.load(f)
             
-            # Lấy access_token
-            access_token = login_data.get("tokens", {}).get("access_token")
-            if access_token:
-                self.set_auth_token(access_token)
-                print(f"✅ Access token loaded from: {login_file_path}")
-                print(f"   Token: {access_token[:20]}...")
-                return True
+            # Kiểm tra cấu trúc file (new format vs old format)
+            tokens_by_year = login_data.get("tokens_by_year", {})
+            
+            if tokens_by_year:
+                # New format: multi-year tokens
+                year_token = tokens_by_year.get(str(school_year))
+                if year_token:
+                    access_token = year_token.get("access_token")
+                    if access_token and self._is_token_valid(access_token):
+                        self.set_auth_token(access_token)
+                        print(f"✅ Access token loaded for year {school_year}: {login_file_path}")
+                        print(f"   Token: {access_token[:20]}...")
+                        return True
+                    else:
+                        print(f"❌ Token cho năm {school_year} đã hết hạn hoặc không hợp lệ")
+                        return False
+                else:
+                    print(f"❌ Không tìm thấy token cho năm học {school_year}")
+                    return False
             else:
-                print("❌ Không tìm thấy access_token trong file login")
-                return False
+                # Old format: fallback compatibility
+                access_token = login_data.get("tokens", {}).get("access_token")
+                if access_token and self._is_token_valid(access_token):
+                    self.set_auth_token(access_token)
+                    print(f"✅ Access token loaded (old format): {login_file_path}")
+                    print(f"   Token: {access_token[:20]}...")
+                    return True
+                else:
+                    print("❌ Token cũ đã hết hạn hoặc không hợp lệ")
+                    return False
                 
         except Exception as e:
             print(f"❌ Error loading token from login file: {e}")
+            return False
+    
+    def _is_token_valid(self, access_token: str) -> bool:
+        """
+        Kiểm tra xem token có còn hợp lệ không
+        
+        Args:
+            access_token (str): Token cần kiểm tra
+            
+        Returns:
+            bool: True nếu token còn hợp lệ
+        """
+        try:
+            # Decode JWT token để kiểm tra expiry
+            import base64
+            import json
+            from datetime import datetime
+            
+            if not access_token or not isinstance(access_token, str):
+                print(f"   Invalid token format: {type(access_token)}")
+                return False
+            
+            parts = access_token.split('.')
+            if len(parts) < 3:
+                print(f"   Token doesn't have 3 parts: {len(parts)}")
+                return False
+            
+            # Decode payload (part 1)
+            payload = parts[1]
+            
+            # Đảm bảo padding đúng cho base64
+            # Base64 string length phải chia hết cho 4
+            missing_padding = len(payload) % 4
+            if missing_padding:
+                payload += '=' * (4 - missing_padding)
+            
+            try:
+                decoded_bytes = base64.urlsafe_b64decode(payload)
+                decoded = json.loads(decoded_bytes.decode('utf-8'))
+            except Exception as decode_error:
+                print(f"   Error decoding token payload: {decode_error}")
+                return False
+            
+            # Kiểm tra expiry time
+            exp = decoded.get('exp')
+            if exp:
+                try:
+                    exp_time = datetime.fromtimestamp(exp)
+                    now = datetime.now()
+                    
+                    if exp_time > now:
+                        print(f"   Token expires at: {exp_time}")
+                        return True
+                    else:
+                        print(f"   Token expired at: {exp_time}")
+                        return False
+                except Exception as exp_error:
+                    print(f"   Error checking expiry: {exp_error}")
+                    return False
+            
+            # Nếu không có exp field, kiểm tra other fields để đảm bảo token hợp lệ
+            required_fields = ['Email', 'userId', 'codeApp']
+            for field in required_fields:
+                if field not in decoded:
+                    print(f"   Missing required field: {field}")
+                    return False
+            
+            print(f"   Token valid (no exp field found, but has required fields)")
+            return True
+            
+        except Exception as e:
+            print(f"   Error validating token: {e}")
             return False
     
     def get_current_school_year_info(self) -> Dict[str, Any]:
@@ -626,15 +869,16 @@ class OnLuyenAPIClient:
             if len(parts) >= 2:
                 # Decode payload (part 1)
                 payload = parts[1]
-                # Thêm padding nếu cần
-                padding = len(payload) % 4
-                if padding:
-                    payload += '=' * (4 - padding)
+                # Đảm bảo padding đúng cho base64
+                missing_padding = len(payload) % 4
+                if missing_padding:
+                    payload += '=' * (4 - missing_padding)
                 
-                import base64
-                import json
-                decoded_bytes = base64.b64decode(payload)
-                decoded = json.loads(decoded_bytes.decode('utf-8'))
+                try:
+                    decoded_bytes = base64.urlsafe_b64decode(payload)
+                    decoded = json.loads(decoded_bytes.decode('utf-8'))
+                except Exception as decode_error:
+                    return {"success": False, "error": f"Lỗi decode token payload: {decode_error}"}
                 
                 school_year = decoded.get('SchoolYear')
                 display_name = decoded.get('DisplayName', '')
@@ -667,6 +911,183 @@ class OnLuyenAPIClient:
                 print(f"   📧 Email: {info['email']}")
         else:
             print(f"❌ Không thể lấy thông tin năm học: {info.get('error')}")
+
+    def ensure_valid_token(self, admin_email: str, password: str, school_year: int = 2025) -> bool:
+        """
+        Đảm bảo có token hợp lệ cho năm học cụ thể
+        - Chỉ login DUY NHẤT lần đầu nếu chưa có token hợp lệ cho BẤT KỲ năm nào
+        - Nếu có token năm khác, chỉ cần gọi change_year để lấy token năm mới
+        
+        Args:
+            admin_email (str): Email admin
+            password (str): Password
+            school_year (int): Năm học cần token
+            
+        Returns:
+            bool: True nếu có token hợp lệ
+        """
+        try:
+            print(f"\n🔍 Kiểm tra token cho năm học {school_year}...")
+            
+            # Bước 1: Kiểm tra token cho năm học hiện tại
+            if self.load_token_from_login_file(admin_email, school_year):
+                print(f"✅ Đã có token hợp lệ cho năm {school_year}")
+                return True
+            
+            print(f"⚠️ Không có token hợp lệ cho năm {school_year}")
+            
+            # Bước 2: Kiểm tra tất cả token cho các năm khác
+            print(f"🔍 Kiểm tra token cho các năm khác...")
+            valid_tokens = self._check_valid_tokens_for_years(admin_email)
+            
+            # Tìm năm có token hợp lệ (không phải năm hiện tại)
+            valid_other_year = None
+            for year, is_valid in valid_tokens.items():
+                if year != school_year and is_valid:
+                    valid_other_year = year
+                    break
+            
+            if valid_other_year:
+                # Có token cho năm khác - chỉ cần change year
+                print(f"✅ Tìm thấy token hợp lệ cho năm {valid_other_year}")
+                print(f"🔄 Chuyển năm học từ {valid_other_year} sang {school_year}...")
+                
+                # Load token cho năm có sẵn
+                if self.load_token_from_login_file(admin_email, valid_other_year):
+                    change_result = self.change_year_v2(school_year)
+                    
+                    if change_result.get('success', False):
+                        print(f"✅ Đã chuyển năm và lưu token cho năm {school_year}")
+                        return True
+                    else:
+                        print(f"❌ Chuyển năm thất bại: {change_result.get('error', 'Unknown error')}")
+                        print(f"🔄 Fallback: Thực hiện login mới...")
+                        # Fallback to login if change year fails
+                else:
+                    print(f"❌ Không thể load token cho năm {valid_other_year}")
+            
+            # Bước 3: Không có token hợp lệ cho bất kỳ năm nào - cần login
+            print(f"🔐 Thực hiện login DUY NHẤT cho tài khoản {admin_email}...")
+            
+            login_result = self.login(admin_email, password)
+            if not login_result.get('success', False):
+                print(f"❌ Login thất bại: {login_result.get('error', 'Unknown error')}")
+                return False
+            
+            print(f"✅ Login thành công!")
+            
+            # Kiểm tra năm học sau login
+            current_info = self.get_current_school_year_info()
+            current_year_from_token = current_info.get('school_year') if current_info.get('success') else None
+            
+            if current_year_from_token and current_year_from_token != school_year:
+                print(f"� Token login mặc định cho năm {current_year_from_token}")
+                
+                # Lưu token cho năm hiện tại trước
+                self._save_multi_year_token(admin_email, password, login_result, current_year_from_token)
+                print(f"✅ Đã lưu token cho năm {current_year_from_token}")
+                
+                if school_year != current_year_from_token:
+                    print(f"🔄 Chuyển sang năm mục tiêu {school_year}...")
+                    # Chuyển sang năm mục tiêu
+                    change_result = self.change_year_v2(school_year)
+                    if change_result.get('success', False):
+                        print(f"✅ Đã chuyển và lưu token cho năm {school_year}")
+                        return True
+                    else:
+                        print(f"❌ Chuyển năm thất bại sau login: {change_result.get('error')}")
+                        print(f"ℹ️ Vẫn có thể sử dụng token cho năm {current_year_from_token}")
+                        return False
+                else:
+                    return True
+            else:
+                # Token login đã đúng năm mục tiêu
+                self._save_multi_year_token(admin_email, password, login_result, school_year)
+                print(f"✅ Đã login và lưu token cho năm {school_year}")
+                return True
+            
+        except Exception as e:
+            print(f"❌ Lỗi ensure_valid_token: {e}")
+            import traceback
+            print(f"   Traceback: {traceback.format_exc()}")
+            return False
+    
+    def _save_multi_year_token(self, admin_email: str, password: str, login_result: dict, school_year: int):
+        """
+        Lưu token với cấu trúc multi-year
+        
+        Args:
+            admin_email (str): Email admin
+            password (str): Password  
+            login_result (dict): Kết quả login
+            school_year (int): Năm học
+        """
+        try:
+            from datetime import datetime
+            import os
+            
+            # File name cố định theo admin_email
+            filename = f"onluyen_login_{admin_email.replace('@', '_').replace('.', '_')}.json"
+            filepath = f"data/output/{filename}"
+            
+            # Tạo thư mục output nếu chưa có
+            os.makedirs("data/output", exist_ok=True)
+            
+            # Lấy data từ response
+            response_data = login_result.get('data', {})
+            
+            # Tạo token info cho năm học hiện tại
+            current_year_token = {
+                'access_token': response_data.get('access_token'),
+                'refresh_token': response_data.get('refresh_token'),
+                'expires_in': response_data.get('expires_in'),
+                'expires_at': response_data.get('expires_at'),
+                'user_id': response_data.get('userId'),
+                'display_name': response_data.get('display_name'),
+                'account': response_data.get('account'),
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # Load existing data nếu có
+            existing_data = {}
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                except Exception as e:
+                    print(f"⚠️ Không thể đọc file existing: {e}")
+                    existing_data = {}
+            
+            # Cấu trúc mới với multi-year support
+            login_info = {
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'school_name': existing_data.get('school_name', 'Unknown'),
+                'admin_email': admin_email,
+                'admin_password': password,
+                'drive_link': existing_data.get('drive_link', ''),
+                'login_status': 'success',
+                'current_school_year': school_year,  # Năm học hiện tại
+                'tokens_by_year': existing_data.get('tokens_by_year', {}),  # Giữ lại tokens cũ
+                'last_login': {
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'school_year': school_year,
+                    'status_code': login_result.get('status_code'),
+                    'response_keys': list(response_data.keys()) if response_data else []
+                }
+            }
+            
+            # Cập nhật token cho năm học hiện tại
+            login_info['tokens_by_year'][str(school_year)] = current_year_token
+            
+            # Ghi file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(login_info, f, ensure_ascii=False, indent=2)
+            
+            print(f"✅ Đã lưu token vào: {filepath}")
+            print(f"📅 Token cho năm học {school_year} đã được cập nhật")
+            
+        except Exception as e:
+            print(f"Lỗi lưu multi-year token: {e}")
 
     def switch_school_year(self, target_year: int = None, save_to_login_file: bool = True, 
                          login_file_path: str = None) -> Dict[str, Any]:
@@ -789,7 +1210,7 @@ class OnLuyenAPIClient:
                             # Fallback: try to decode as-is
                             response_text = response.text
                         except Exception as e:
-                            print(f"   ❌ Brotli decompression failed: {e}")
+                            # print(f"   ❌ Brotli decompression failed: {e}")
                             response_text = response.text
                     elif content_encoding == 'gzip':
                         # Requests tự động xử lý gzip
