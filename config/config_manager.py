@@ -205,6 +205,59 @@ class ConfigManager:
         print(f"   🌍 Environment: {environment}")
 
 
+    def set_env_value(self, key: str, value: str) -> bool:
+        """
+        Cập nhật (hoặc thêm) key=value trong file .env và đồng bộ vào memory  os.environ.
+        Trả về True nếu thành công.
+        """
+        try:
+            env_path = Path(self.env_file)
+            lines = []
+            if env_path.exists():
+                with env_path.open('r', encoding='utf-8') as f:
+                    lines = f.readlines()
+
+            key_prefix = f"{key}="
+            found = False
+            for idx, line in enumerate(lines):
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    continue
+                if stripped.split('=', 1)[0].strip() == key:
+                    lines[idx] = f"{key_prefix}{value}\n"
+                    found = True
+                    break
+
+            if not found:
+                if lines and not lines[-1].endswith('\n'):
+                    lines[-1] = lines[-1] + '\n'
+                lines.append(f"{key_prefix}{value}\n")
+
+            # Write back atomically
+            with env_path.open('w', encoding='utf-8') as f:
+                f.writelines(lines)
+
+            # Update runtime config and environment
+            self.config[key] = value
+            os.environ[key] = str(value)
+            return True
+        except Exception as e:
+            print(f"❌ Không thể cập nhật .env: {e}")
+            return False
+
+    def set_sheets_id(self, new_sheet_id: str) -> bool:
+        """
+        Convenience helper: cập nhật GOOGLE_TEST_SHEET_ID trong .env
+        """
+        return self.set_env_value('GOOGLE_TEST_SHEET_ID', new_sheet_id)
+
+    def reload(self) -> None:
+        """
+        Tải lại file .env vào bộ nhớ (gọi sau khi thay đổi .env từ ngoài).
+        """
+        self.config = {}
+        self._load_env_file()
+
 # Global config instance
 config_manager = ConfigManager()
 

@@ -3,7 +3,6 @@ Main UI Window for School Process Application
 Modern Material Design với Tkinter
 """
 
-import tkinter as tk
 import sys
 import threading
 import json
@@ -13,11 +12,19 @@ import subprocess
 import platform
 import base64
 import glob
+import shutil
+import pandas as pd
+import tkinter as tk
 
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime
 from pathlib import Path
 from app import SchoolProcessApp
+from converters.json_to_excel_converter import JSONToExcelTemplateConverter
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
+from openpyxl import load_workbook
+
 
 # Thêm project root vào Python path
 project_root = Path(__file__).parent.parent
@@ -261,12 +268,19 @@ class SchoolProcessMainWindow:
                                    command=self.start_workflow_case1)
         self.btn_case1.pack(fill='x', pady=(0, 5))
         
+        self.btn_case3 = ttk.Button(left_frame,
+                                   text="3 file riêng lẻ",
+                                   style='Primary.TButton',
+                                   command=self.start_workflow_case3)
+        self.btn_case3.pack(fill='x', pady=(0, 5))
+
         self.btn_case2 = ttk.Button(left_frame,
                                    text="Theo dữ liệu file import",
                                    style='Primary.TButton',
                                    command=self.start_workflow_case2)
         self.btn_case2.pack(fill='x', pady=(0, 15))
-        
+
+
         # Separator
         separator1 = ttk.Separator(left_frame, orient='horizontal')
         separator1.pack(fill='x', pady=(0, 15))
@@ -350,7 +364,7 @@ class SchoolProcessMainWindow:
         self.create_config_tab()
         
         # Tab: Results
-        self.create_results_tab()
+        # self.create_results_tab()
         
     def create_sheets_tab(self):
         """Tạo tab Google Sheets viewer"""
@@ -459,7 +473,7 @@ class SchoolProcessMainWindow:
         scrollbar_config.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
         # OnLuyen API Configuration
-        self.create_onluyen_config(scrollable_frame)
+        # self.create_onluyen_config(scrollable_frame)
         
         # Google Sheets Configuration  
         self.create_sheets_config(scrollable_frame)
@@ -467,45 +481,45 @@ class SchoolProcessMainWindow:
         # File Paths Configuration
         self.create_paths_config(scrollable_frame)
         
-    def create_results_tab(self):
-        """Tạo tab kết quả"""
-        results_frame = ttk.Frame(self.notebook)
-        self.notebook.add(results_frame, text="📊 Kết quả")
+    # def create_results_tab(self):
+    #     """Tạo tab kết quả"""
+    #     results_frame = ttk.Frame(self.notebook)
+    #     self.notebook.add(results_frame, text="📊 Kết quả")
         
-        results_frame.rowconfigure(1, weight=1)
-        results_frame.columnconfigure(0, weight=1)
+    #     results_frame.rowconfigure(1, weight=1)
+    #     results_frame.columnconfigure(0, weight=1)
         
-        # Summary section
-        summary_frame = ttk.LabelFrame(results_frame, text="Tóm tắt", padding="10")
-        summary_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+    #     # Summary section
+    #     summary_frame = ttk.LabelFrame(results_frame, text="Tóm tắt", padding="10")
+    #     summary_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        self.summary_label = ttk.Label(summary_frame, text="Chưa có dữ liệu")
-        self.summary_label.pack()
+    #     self.summary_label = ttk.Label(summary_frame, text="Chưa có dữ liệu")
+    #     self.summary_label.pack()
         
-        # Files section
-        files_frame = ttk.LabelFrame(results_frame, text="Files đã tạo", padding="10")
-        files_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        files_frame.rowconfigure(0, weight=1)
-        files_frame.columnconfigure(0, weight=1)
+    #     # Files section
+    #     files_frame = ttk.LabelFrame(results_frame, text="Files đã tạo", padding="10")
+    #     files_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+    #     files_frame.rowconfigure(0, weight=1)
+    #     files_frame.columnconfigure(0, weight=1)
         
-        # Treeview for files
-        self.files_tree = ttk.Treeview(files_frame, columns=('Type', 'Path', 'Size', 'Date'), show='tree headings')
-        self.files_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+    #     # Treeview for files
+    #     self.files_tree = ttk.Treeview(files_frame, columns=('Type', 'Path', 'Size', 'Date'), show='tree headings')
+    #     self.files_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Configure columns
-        self.files_tree.heading('#0', text='Tên file')
-        self.files_tree.heading('Type', text='Loại')
-        self.files_tree.heading('Path', text='Đường dẫn')
-        self.files_tree.heading('Size', text='Kích thước')
-        self.files_tree.heading('Date', text='Ngày tạo')
+    #     # Configure columns
+    #     self.files_tree.heading('#0', text='Tên file')
+    #     self.files_tree.heading('Type', text='Loại')
+    #     self.files_tree.heading('Path', text='Đường dẫn')
+    #     self.files_tree.heading('Size', text='Kích thước')
+    #     self.files_tree.heading('Date', text='Ngày tạo')
         
-        # Scrollbar for treeview
-        files_scrollbar = ttk.Scrollbar(files_frame, orient='vertical', command=self.files_tree.yview)
-        files_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        self.files_tree.configure(yscrollcommand=files_scrollbar.set)
+    #     # Scrollbar for treeview
+    #     files_scrollbar = ttk.Scrollbar(files_frame, orient='vertical', command=self.files_tree.yview)
+    #     files_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+    #     self.files_tree.configure(yscrollcommand=files_scrollbar.set)
         
-        # Context menu for files
-        self.setup_files_context_menu()
+    #     # Context menu for files
+    #     self.setup_files_context_menu()
         
     def create_status_bar(self):
         """Tạo status bar"""
@@ -542,28 +556,84 @@ class SchoolProcessMainWindow:
         # Headers/separators
         self.log_text_widget.tag_configure("header", foreground="#9C27B0", font=('Consolas', 9, 'bold'))
         
-    def create_onluyen_config(self, parent):
-        """Tạo section cấu hình OnLuyen API"""
-        onluyen_frame = ttk.LabelFrame(parent, text="OnLuyen API", padding="10")
-        onluyen_frame.pack(fill='x', pady=(0, 10))
+    # def create_onluyen_config(self, parent):
+    #     """Tạo section cấu hình OnLuyen API"""
+    #     onluyen_frame = ttk.LabelFrame(parent, text="OnLuyen API", padding="10")
+    #     onluyen_frame.pack(fill='x', pady=(0, 10))
         
-        # Base URL
-        ttk.Label(onluyen_frame, text="Base URL:").grid(row=0, column=0, sticky='w', pady=(0, 5))
-        self.onluyen_url_var = tk.StringVar(value=self.config.get_onluyen_config().get('base_url', ''))
-        url_entry = ttk.Entry(onluyen_frame, textvariable=self.onluyen_url_var, width=50)
-        url_entry.grid(row=0, column=1, sticky='ew', pady=(0, 5), padx=(10, 0))
+    #     # Base URL
+    #     ttk.Label(onluyen_frame, text="Base URL:").grid(row=0, column=0, sticky='w', pady=(0, 5))
+    #     self.onluyen_url_var = tk.StringVar(value=self.config.get_onluyen_config().get('base_url', ''))
+    #     url_entry = ttk.Entry(onluyen_frame, textvariable=self.onluyen_url_var, width=50)
+    #     url_entry.grid(row=0, column=1, sticky='ew', pady=(0, 5), padx=(10, 0))
         
-        # Default credentials (readonly)
-        ttk.Label(onluyen_frame, text="Username:").grid(row=1, column=0, sticky='w', pady=(0, 5))
-        self.onluyen_username_var = tk.StringVar(value=self.config.get_onluyen_config().get('username', ''))
-        username_entry = ttk.Entry(onluyen_frame, textvariable=self.onluyen_username_var, width=50)
-        username_entry.grid(row=1, column=1, sticky='ew', pady=(0, 5), padx=(10, 0))
+    #     # Default credentials (readonly)
+    #     ttk.Label(onluyen_frame, text="Username:").grid(row=1, column=0, sticky='w', pady=(0, 5))
+    #     self.onluyen_username_var = tk.StringVar(value=self.config.get_onluyen_config().get('username', ''))
+    #     username_entry = ttk.Entry(onluyen_frame, textvariable=self.onluyen_username_var, width=50)
+    #     username_entry.grid(row=1, column=1, sticky='ew', pady=(0, 5), padx=(10, 0))
         
-        # Test connection button
-        ttk.Button(onluyen_frame, text="Test Connection", command=self.test_onluyen_connection).grid(row=2, column=1, sticky='w', pady=(10, 0), padx=(10, 0))
+    #     # Test connection button
+    #     ttk.Button(onluyen_frame, text="Test Connection", command=self.test_onluyen_connection).grid(row=2, column=1, sticky='w', pady=(10, 0), padx=(10, 0))
         
-        onluyen_frame.columnconfigure(1, weight=1)
+    #     onluyen_frame.columnconfigure(1, weight=1)
+
+    def save_sheets_config(self):
+        """Lưu Google Sheets ID và Sheet Name vào cấu hình (.env / config)"""
+        new_id = self.sheets_id_var.get().strip()
+        new_name = self.sheet_name_var.get().strip()
         
+        if not new_id:
+            messagebox.showwarning("Cảnh báo", "Spreadsheet ID không được để trống.")
+            return
+        
+        try:
+            # config là instance trả về từ get_config()
+            # ưu tiên sử dụng helper set_sheets_id nếu có
+            saved = False
+            if hasattr(self.config, 'set_sheets_id'):
+                saved = self.config.set_sheets_id(new_id)
+            elif hasattr(self.config, 'set_env_value'):
+                saved = self.config.set_env_value('GOOGLE_TEST_SHEET_ID', new_id)
+            # else:
+            #     # fallback: viết trực tiếp vào .env (đơn giản, ít an toàn)
+            #     env_path = Path('.env')
+            #     lines = []
+            #     if env_path.exists():
+            #         with env_path.open('r', encoding='utf-8') as f:
+            #             lines = f.readlines()
+            #     key = 'GOOGLE_TEST_SHEET_ID'
+            #     found = False
+            #     for i, line in enumerate(lines):
+            #         if line.strip().startswith(f"{key}="):
+            #             lines[i] = f"{key}={new_id}\n"
+            #             found = True
+            #             break
+            #     if not found:
+            #         lines.append(f"{key}={new_id}\n")
+            #     with env_path.open('w', encoding='utf-8') as f:
+            #         f.writelines(lines)
+            #     saved = True
+                        
+            # Reload config in-memory if supported
+            if hasattr(self.config, 'reload'):
+                try:
+                    self.config.reload()
+                except:
+                    pass
+            
+            if saved:
+                self.log_message_safe(f"✅ Đã lưu Google Sheets ID: {new_id}", "success")
+                if new_name:
+                    self.log_message_safe(f"✅ Đã lưu Sheet Name: {new_name}", "success")
+                messagebox.showinfo("Lưu thành công", "Đã lưu cấu hình Google Sheets.")
+            else:
+                raise RuntimeError("Không thể lưu cấu hình (no supported save method).")
+        
+        except Exception as e:
+            self.log_message_safe(f"❌ Lưu cấu hình Sheets thất bại: {e}", "error")
+            messagebox.showerror("Lỗi", f"Lưu cấu hình thất bại:\n{e}")
+
     def create_sheets_config(self, parent):
         """Tạo section cấu hình Google Sheets"""
         sheets_frame = ttk.LabelFrame(parent, text="Google Sheets", padding="10")
@@ -581,9 +651,10 @@ class SchoolProcessMainWindow:
         name_entry = ttk.Entry(sheets_frame, textvariable=self.sheet_name_var, width=50)
         name_entry.grid(row=1, column=1, sticky='ew', pady=(0, 5), padx=(10, 0))
         
-        # Test connection button
-        ttk.Button(sheets_frame, text="Test Connection", command=self.test_sheets_connection).grid(row=2, column=1, sticky='w', pady=(10, 0), padx=(10, 0))
-        
+        # Buttons: Connection  Save
+        btn_frame = ttk.Frame(sheets_frame)
+        btn_frame.grid(row=2, column=1, sticky='w', pady=(10, 0), padx=(10, 0))
+        ttk.Button(btn_frame, text="Lưu", command=self.save_sheets_config, style='Success.TButton').pack(side='left', padx=(8,0))
         sheets_frame.columnconfigure(1, weight=1)
         
     def create_paths_config(self, parent):
@@ -593,19 +664,19 @@ class SchoolProcessMainWindow:
         
         paths_config = self.config.get_paths_config()
         
-        # Input directory
-        ttk.Label(paths_frame, text="Thư mục Input:").grid(row=0, column=0, sticky='w', pady=(0, 5))
-        self.input_dir_var = tk.StringVar(value=paths_config.get('input_dir', ''))
-        input_entry = ttk.Entry(paths_frame, textvariable=self.input_dir_var, width=40)
-        input_entry.grid(row=0, column=1, sticky='ew', pady=(0, 5), padx=(10, 5))
-        ttk.Button(paths_frame, text="...", command=lambda: self.browse_directory(self.input_dir_var)).grid(row=0, column=2, pady=(0, 5))
+        # # Input directory
+        # ttk.Label(paths_frame, text="Thư mục Input:").grid(row=0, column=0, sticky='w', pady=(0, 5))
+        # self.input_dir_var = tk.StringVar(value=paths_config.get('input_dir', ''))
+        # input_entry = ttk.Entry(paths_frame, textvariable=self.input_dir_var, width=40)
+        # input_entry.grid(row=0, column=1, sticky='ew', pady=(0, 5), padx=(10, 5))
+        # ttk.Button(paths_frame, text="...", command=lambda: self.browse_directory(self.input_dir_var)).grid(row=0, column=2, pady=(0, 5))
         
         # Output directory
         ttk.Label(paths_frame, text="Thư mục Output:").grid(row=1, column=0, sticky='w', pady=(0, 5))
         self.output_dir_var = tk.StringVar(value=paths_config.get('output_dir', ''))
         output_entry = ttk.Entry(paths_frame, textvariable=self.output_dir_var, width=40)
         output_entry.grid(row=1, column=1, sticky='ew', pady=(0, 5), padx=(10, 5))
-        ttk.Button(paths_frame, text="...", command=lambda: self.browse_directory(self.output_dir_var)).grid(row=1, column=2, pady=(0, 5))
+        ttk.Button(paths_frame, text="Duyệt", command=lambda: self.browse_directory(self.output_dir_var)).grid(row=1, column=2, pady=(0, 5))
         
         paths_frame.columnconfigure(1, weight=1)
         
@@ -731,7 +802,32 @@ class SchoolProcessMainWindow:
         thread = threading.Thread(target=self._execute_workflow_case2, args=(selected_row_data,))
         thread.daemon = True
         thread.start()
-        
+
+    def start_workflow_case3(self):
+        """Bắt đầu workflow: xuất 3 file riêng lẻ (Admin, GIAO-VIEN, HOC-SINH)"""
+        if self.is_processing:
+            messagebox.showwarning("Cảnh báo", "Hệ thống đang xử lý. Vui lòng đợi.")
+            return
+
+        if not hasattr(self, 'sheets_viewer'):
+            messagebox.showerror("Lỗi", "Google Sheets viewer chưa được khởi tạo.")
+            return
+
+        selected_row_data = self.sheets_viewer.get_selected_row_data()
+        if not selected_row_data:
+            messagebox.showwarning("Cảnh báo",
+                                   "Vui lòng chọn một row (trường học) trong Google Sheets để xử lý.\n\n"
+                                   "Click vào số thứ tự hàng bên trái để chọn row.")
+            return
+
+        row_info = self.sheets_viewer.get_selected_row_info()
+        self.log_message(f"Bắt đầu: Xuất 3 file riêng lẻ", "header")
+        self.log_message(f"📋 Xử lý trường: {row_info}", "info")
+
+        thread = threading.Thread(target=self._execute_workflow_case3, args=(selected_row_data,))
+        thread.daemon = True
+        thread.start()
+
     def _execute_workflow_case1(self, selected_school_data):
         """Execute workflow case 1 trong thread"""
         try:
@@ -817,7 +913,329 @@ class SchoolProcessMainWindow:
         finally:
             self.is_processing = False
             self.update_button_state_safe(self.btn_stop, 'disabled')
+
+    def _execute_workflow_case3(self, selected_school_data):
+        """Thực thi xuất 3 file riêng lẻ trong thread - tạo 3 file riêng lẻ từ template"""
+        try:
+            self.is_processing = True
+            self.update_button_state_safe(self.btn_stop, 'normal')
+
+            self.log_message_safe("Đang thực hiện xuất 3 file riêng lẻ...", "info")
+            self.update_progress_safe(5, "Khởi tạo...")
+
+            app = SchoolProcessApp()
+
+            # Sử dụng logic tương tự case 1 - gọi _execute_workflow_case_1 để lấy dữ liệu
+            self.update_progress_safe(10, "Thực hiện workflow chính...")
             
+            # Execute workflow case 1 để lấy dữ liệu đầy đủ
+            workflow_results = app._execute_workflow_case_1(selected_school_data, ui_mode=True)
+            
+            if not workflow_results or not isinstance(workflow_results, dict):
+                self.log_message_safe("❌ Workflow không trả về dữ liệu hợp lệ", "error")
+                return
+
+            self.update_progress_safe(40, "Đang tạo 3 file riêng lẻ từ template...")
+
+            # Lấy thông tin từ workflow results
+            school_name = workflow_results.get('school_info', {}).get('name', 'Unknown')
+            safe_school_name = "".join(c for c in school_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            excel_file_path = workflow_results.get('excel_file_path')
+            
+            if not excel_file_path or not os.path.exists(excel_file_path):
+                self.log_message_safe("❌ Không tìm thấy file Excel được tạo từ workflow", "error")
+                return
+
+            # Tạo timestamp cho file output
+            output_dir = Path(self.config.get_paths_config().get('output_dir', 'data/output'))
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Đọc file Excel gốc để tách thành 3 file
+            def _apply_excel_style(path: Path, sheet_name: str):
+                """Áp dụng style giống Case1: header bold, fill, auto-width, freeze pane, autofilter"""
+                try:
+                    wb = load_workbook(path)
+                    if sheet_name not in wb.sheetnames:
+                        wb.close()
+                        return
+                    ws = wb[sheet_name]
+
+                    header_font = Font(bold=True, color="FFFFFFFF")
+                    header_fill = PatternFill("solid", fgColor="#E2EFD9")
+                    for cell in next(ws.iter_rows(min_row=1, max_row=1)):
+                        cell.font = header_font
+                        cell.fill = header_fill
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+                    dims = {}
+                    for row in ws.iter_rows(values_only=True):
+                        for i, value in enumerate(row, 1):
+                            l = 0 if value is None else len(str(value))
+                            dims[i] = max(dims.get(i, 0), l)
+                    for i, width in dims.items():
+                        col = get_column_letter(i)
+                        ws.column_dimensions[col].width = min(max(width + 2, 10), 60)
+
+                    ws.freeze_panes = "A2"
+                    try:
+                        ws.auto_filter.ref = ws.dimensions
+                    except Exception:
+                        pass
+
+                    wb.save(path)
+                    wb.close()
+                except Exception as e:
+                    self.log_message_safe(f"⚠️ Styling failed for {path.name} ({sheet_name}): {e}", "warning")
+
+            try:
+                # Try use converter if we have json file from workflow
+                json_path = workflow_results.get('json_file_path') or workflow_results.get('json_path') or None
+
+                template_dir = Path('data/temp')
+                admin_template = template_dir / 'Template_Export_(ADMIN).xlsx'
+                teacher_template = template_dir / 'Template_Export_(GV).xlsx'
+                student_template = template_dir / 'Template_Export_(HS).xlsx'
+
+                admin_file = output_dir / f"Export_{safe_school_name}_(ADMIN).xlsx"
+                teachers_file = output_dir / f"Export_{safe_school_name}_(GV).xlsx"
+                students_file = output_dir / f"Export_{safe_school_name}_(HS).xlsx"
+
+                created_files = []
+
+                # Option A: use converter class to fill templates if json is available
+                used_converter = False
+                if json_path and Path(json_path).exists():
+                    try:
+                        conv = JSONToExcelTemplateConverter(json_path)
+                        if conv.load_json_data():
+                            conv.extract_teachers_data()
+                            conv.extract_students_data()
+                            # Admin
+                            try:
+                                if admin_template.exists():
+                                    shutil.copy2(admin_template, admin_file)
+                                    wb = load_workbook(admin_file)
+                                    conv.update_admin_sheet(wb)
+                                    wb.save(admin_file)
+                                    wb.close()
+                                else:
+                                    # create minimal admin file via pandas fallback
+                                    pd.DataFrame([workflow_results.get('school_info', {})]).to_excel(admin_file, index=False, sheet_name='ADMIN')
+                                _apply_excel_style(admin_file, 'ADMIN')
+                                created_files.append(admin_file.name)
+                                self.log_message_safe(f"✅ Đã tạo file Admin: {admin_file.name}", "success")
+                            except Exception as e:
+                                self.log_message_safe(f"❌ Lỗi tạo file Admin (converter): {e}", "error")
+
+                            # Teachers
+                            try:
+                                if teacher_template.exists():
+                                    shutil.copy2(teacher_template, teachers_file)
+                                    wb = load_workbook(teachers_file)
+                                    conv.fill_teachers_sheet(wb)
+                                    wb.save(teachers_file)
+                                    wb.close()
+                                else:
+                                    conv.teachers_df.to_excel(teachers_file, index=False, sheet_name='GIAO-VIEN')
+                                _apply_excel_style(teachers_file, 'GIAO-VIEN')
+                                created_files.append(teachers_file.name)
+                                self.log_message_safe(f"✅ Đã tạo file Giáo viên: {teachers_file.name}", "success")
+                            except Exception as e:
+                                self.log_message_safe(f"❌ Lỗi tạo file Giáo viên (converter): {e}", "error")
+
+                            # Students
+                            try:
+                                if student_template.exists():
+                                    shutil.copy2(student_template, students_file)
+                                    wb = load_workbook(students_file)
+                                    conv.fill_students_sheet(wb)
+                                    wb.save(students_file)
+                                    wb.close()
+                                else:
+                                    if conv.students_df is not None:
+                                        conv.students_df.to_excel(students_file, index=False, sheet_name='HOC-SINH')
+                                _apply_excel_style(students_file, 'HOC-SINH')
+                                created_files.append(students_file.name)
+                                self.log_message_safe(f"✅ Đã tạo file Học sinh: {students_file.name}", "success")
+                            except Exception as e:
+                                self.log_message_safe(f"❌ Lỗi tạo file Học sinh (converter): {e}", "error")
+
+                            used_converter = True
+                    except Exception as e:
+                        self.log_message_safe(f"⚠️ Converter not usable: {e}. Will fallback to split combined file.", "warning")
+
+                # Option B: fallback - split the combined excel file created by workflow
+                if not used_converter:
+                    try:
+                        self.update_progress_safe(60, "Đang đọc file tổng và tách sheets...")
+                        # read all sheets from combined excel
+                        sheets = pd.read_excel(excel_file_path, sheet_name=None)
+                        # Admin
+                        if 'ADMIN' in sheets:
+                            admin_df = sheets['ADMIN']
+                            if admin_template.exists():
+                                shutil.copy2(admin_template, admin_file)
+                                with pd.ExcelWriter(admin_file, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                                    admin_df.to_excel(writer, sheet_name='ADMIN', index=False)
+                            else:
+                                admin_df.to_excel(admin_file, sheet_name='ADMIN', index=False)
+                            _apply_excel_style(admin_file, 'ADMIN')
+                            created_files.append(admin_file.name)
+                            self.log_message_safe(f"✅ Đã tạo file Admin: {admin_file.name}", "success")
+                        else:
+                            self.log_message_safe("⚠️ Không tìm thấy sheet ADMIN trong file tổng", "warning")
+
+                        # Teachers
+                        if 'GIAO-VIEN' in sheets:
+                            teachers_df = sheets['GIAO-VIEN']
+                            if teacher_template.exists():
+                                shutil.copy2(teacher_template, teachers_file)
+                                with pd.ExcelWriter(teachers_file, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                                    teachers_df.to_excel(writer, sheet_name='GIAO-VIEN', index=False)
+                            else:
+                                teachers_df.to_excel(teachers_file, sheet_name='GIAO-VIEN', index=False)
+                            _apply_excel_style(teachers_file, 'GIAO-VIEN')
+                            created_files.append(teachers_file.name)
+                            self.log_message_safe(f"✅ Đã tạo file Giáo viên: {teachers_file.name}", "success")
+                        else:
+                            self.log_message_safe("⚠️ Không tìm thấy sheet GIAO-VIEN trong file tổng", "warning")
+
+                        # Students
+                        if 'HOC-SINH' in sheets:
+                            students_df = sheets['HOC-SINH']
+                            if student_template.exists():
+                                shutil.copy2(student_template, students_file)
+                                with pd.ExcelWriter(students_file, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                                    students_df.to_excel(writer, sheet_name='HOC-SINH', index=False)
+                            else:
+                                students_df.to_excel(students_file, sheet_name='HOC-SINH', index=False)
+                            _apply_excel_style(students_file, 'HOC-SINH')
+                            created_files.append(students_file.name)
+                            self.log_message_safe(f"✅ Đã tạo file Học sinh: {students_file.name}", "success")
+                        else:
+                            self.log_message_safe("⚠️ Không tìm thấy sheet HOC-SINH trong file tổng", "warning")
+
+                    except Exception as e:
+                        self.log_message_safe(f"❌ Lỗi khi tách file tổng: {e}", "error")
+                        import traceback
+                        traceback.print_exc()
+
+                # Kết thúc xử lý
+                self.update_progress_safe(100, "Hoàn thành")
+                if created_files:
+                    self.log_message_safe("🎉 Xuất 3 file riêng lẻ hoàn tất!", "success")
+                else:
+                    self.log_message_safe("⚠️ Không có file nào được tạo.", "warning")
+
+                # Hiển thị dialog thông báo
+                try:
+                    # Ask user if they want to upload the created files to Drive (UI behavior like Case 1)
+                    drive_link = workflow_results.get('school_info', {}).get('drive_link', '')
+
+                    should_upload = messagebox.askyesno(
+                        "Upload lên Drive",
+                        "Bạn có muốn upload các file vừa tạo lên Google Drive (thư mục từ Drive link trong Google Sheets)?"
+                    )
+
+                    if should_upload:
+                        # Validate drive link if available, otherwise allow manual input
+                        folder_id = None
+                        if drive_link and 'drive.google.com' in drive_link and hasattr(app, '_extract_drive_folder_id'):
+                            folder_id = app._extract_drive_folder_id(drive_link)
+
+                        if not folder_id:
+                            manual = messagebox.askyesno(
+                                "Drive link không hợp lệ",
+                                "Drive link không hợp lệ hoặc không có. Bạn có muốn nhập Drive folder link thủ công?"
+                            )
+                            if manual:
+                                manual_link = simpledialog.askstring("Drive link", "Nhập Google Drive folder link:")
+                                if manual_link and 'drive.google.com' in manual_link and hasattr(app, '_extract_drive_folder_id'):
+                                    folder_id = app._extract_drive_folder_id(manual_link)
+                                    drive_link = manual_link
+
+                        if not folder_id:
+                            self.log_message_safe("⚠️ Bỏ qua upload: không có Drive folder hợp lệ", "warning")
+                        else:
+                            # Upload each created file via SchoolProcessApp.upload_to_drive
+                            upload_results = {"success": 0, "errors": []}
+                            files_to_upload = []
+                            for name in created_files:
+                                p = output_dir / name
+                                if p.exists():
+                                    files_to_upload.append(str(p))
+
+                            if not files_to_upload:
+                                self.log_message_safe("⚠️ Không có file để upload", "warning")
+                            else:
+                                self.log_message_safe(f"📤 Đang upload {len(files_to_upload)} file lên Drive...", "info")
+                                for fpath in files_to_upload:
+                                    try:
+                                        res = app.upload_to_drive(
+                                            workflow_results.get('json_file_path', ''),
+                                            fpath,
+                                            drive_link,
+                                            school_name
+                                        )
+                                        if res.get('success', False):
+                                            upload_results["success"] = 1
+                                            # log returned URL if any
+                                            if res.get('urls'):
+                                                self.log_message_safe(f"   ✅ Uploaded: {os.path.basename(fpath)} -> {res['urls'][0]}", "success")
+                                            else:
+                                                self.log_message_safe(f"   ✅ Uploaded: {os.path.basename(fpath)}", "success")
+                                        else:
+                                            upload_results["errors"].append(f"{os.path.basename(fpath)}: {res.get('error', 'Unknown')}")
+                                            self.log_message_safe(f"   ❌ Upload failed: {os.path.basename(fpath)} - {res.get('error', 'Unknown')}", "error")
+                                    except Exception as e:
+                                        upload_results["errors"].append(f"{os.path.basename(fpath)}: {e}")
+                                        self.log_message_safe(f"   ❌ Upload exception: {os.path.basename(fpath)} - {e}", "error")
+
+                                # Summary
+                                self.log_message_safe(f"📊 Upload summary: {upload_results['success']}/{len(files_to_upload)} succeeded", "info")
+                
+                except Exception as e:
+                    self.log_message_safe(f"   ❌ Error: {e}", "error")
+
+                if created_files:
+                    primary_file = str(output_dir / created_files[0]) if created_files else ''
+                    
+                    export_results = {
+                        'json_file_path': workflow_results.get('json_file_path', ''),
+                        'excel_file_path': primary_file,  
+                        'excel_files': [str(output_dir / name) for name in created_files],  
+                        'school_name': school_name,
+                        'drive_link': workflow_results.get('school_info', {}).get('drive_link', ''),
+                        'file_type': 'separate_files'  
+                    }
+                    
+                    self.root.after(0, lambda: self.show_export_dialog(export_results))
+                else:
+                    messagebox.showwarning("Cảnh báo", "Không có file nào được tạo.")
+
+                # Log chi tiết
+                self.log_text_widget.insert(tk.END, f"\n{'='*50}\n")
+                self.log_text_widget.insert(tk.END, f"EXPORT 3 SEPARATE FILES RESULT\n")
+                self.log_text_widget.insert(tk.END, f"{'='*50}\n")
+                self.log_text_widget.insert(tk.END, f"Trường: {school_name}\n")
+                self.log_text_widget.insert(tk.END, f"Nguồn: {excel_file_path}\n")
+                for fn in created_files:
+                    self.log_text_widget.insert(tk.END, f"{fn}\n")
+                self.log_text_widget.see(tk.END)
+
+            except Exception as e:
+                self.log_message_safe(f"❌ Lỗi xử lý file Excel: {e}", "error")
+                import traceback
+                traceback.print_exc()
+
+        except Exception as e:
+            self.log_message_safe(f"❌ Lỗi: {str(e)}", "error")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.is_processing = False
+            self.update_button_state_safe(self.btn_stop, 'disabled')
+
     def show_export_dialog(self, export_results):
         """Hiển thị dialog xem file export"""
         try:
@@ -1550,7 +1968,7 @@ class SchoolProcessMainWindow:
             
     def open_config(self):
         """Mở cấu hình"""
-        self.notebook.select(1)  # Switch to config tab
+        self.notebook.select(2)  # Switch to config tab
         
     def show_about(self):
         """Hiển thị thông tin về ứng dụng"""
@@ -1577,7 +1995,13 @@ Ngày: 2025-07-29
     def upload_files_to_drive(self, export_results):
         """Upload file Excel to Google Drive"""
         try:
-            self.log_message("Đang đẩy file Excel lên Google Drive...", "info")
+            file_type = export_results.get('file_type', 'single')
+            excel_files = export_results.get('excel_files', [])
+            
+            if file_type == 'separate_files' and excel_files:
+                self.log_message(f"Đang đẩy {len(excel_files)} file Excel lên Google Drive...", "info")
+            else:
+                self.log_message("Đang đẩy file Excel lên Google Drive...", "info")
             
             # Tạo thread riêng để upload
             def upload_thread():
@@ -1585,21 +2009,54 @@ Ngày: 2025-07-29
                     # Import and execute upload
                     console_app = SchoolProcessApp()
                     
-                    # Gọi hàm upload của console app (chỉ upload file Excel)
-                    upload_result = console_app.upload_to_drive(
-                        export_results.get('json_file_path', ''),
-                        export_results.get('excel_file_path', ''),
-                        export_results.get('drive_link', ''),
-                        export_results.get('school_name', '')
-                    )
-                    
-                    if upload_result.get('success', False):
-                        self.log_message_safe("✅ Đã đẩy file Excel lên Google Drive thành công!", "success")
-                        messagebox.showinfo("Thành công", "Đã đẩy file Excel lên Google Drive thành công!")
+                    if file_type == 'separate_files' and excel_files:
+                        # Upload multiple files for case 3
+                        success_count = 0
+                        total_files = len(excel_files)
+                        
+                        for i, excel_file in enumerate(excel_files, 1):
+                            self.log_message_safe(f"Đang upload file {i}/{total_files}: {os.path.basename(excel_file)}", "info")
+                            
+                            upload_result = console_app.upload_to_drive(
+                                export_results.get('json_file_path', ''),
+                                excel_file,
+                                export_results.get('drive_link', ''),
+                                export_results.get('school_name', '')
+                            )
+                            
+                            if upload_result.get('success', False):
+                                success_count += 1
+                                self.log_message_safe(f"✅ Upload thành công: {os.path.basename(excel_file)}", "success")
+                            else:
+                                error_msg = upload_result.get('error', 'Unknown error')
+                                self.log_message_safe(f"❌ Upload thất bại: {os.path.basename(excel_file)} - {error_msg}", "error")
+                        
+                        # Summary message
+                        if success_count == total_files:
+                            self.log_message_safe(f"✅ Đã đẩy tất cả {total_files} file Excel lên Google Drive thành công!", "success")
+                            messagebox.showinfo("Thành công", f"Đã đẩy tất cả {total_files} file Excel lên Google Drive thành công!")
+                        elif success_count > 0:
+                            self.log_message_safe(f"⚠️ Đã đẩy {success_count}/{total_files} file lên Drive thành công", "warning")
+                            messagebox.showwarning("Một số lỗi", f"Đã đẩy {success_count}/{total_files} file lên Drive thành công. Kiểm tra log để biết chi tiết.")
+                        else:
+                            self.log_message_safe(f"❌ Không thể đẩy file nào lên Drive", "error")
+                            messagebox.showerror("Lỗi", "Không thể đẩy file nào lên Drive. Kiểm tra log để biết chi tiết.")
                     else:
-                        error_msg = upload_result.get('error', 'Unknown error')
-                        self.log_message_safe(f"❌ Lỗi khi đẩy lên Drive: {error_msg}", "error")
-                        messagebox.showerror("Lỗi", f"Không thể đẩy lên Drive: {error_msg}")
+                        # Upload single file for case 1 and case 2
+                        upload_result = console_app.upload_to_drive(
+                            export_results.get('json_file_path', ''),
+                            export_results.get('excel_file_path', ''),
+                            export_results.get('drive_link', ''),
+                            export_results.get('school_name', '')
+                        )
+                        
+                        if upload_result.get('success', False):
+                            self.log_message_safe("✅ Đã đẩy file Excel lên Google Drive thành công!", "success")
+                            messagebox.showinfo("Thành công", "Đã đẩy file Excel lên Google Drive thành công!")
+                        else:
+                            error_msg = upload_result.get('error', 'Unknown error')
+                            self.log_message_safe(f"❌ Lỗi khi đẩy lên Drive: {error_msg}", "error")
+                            messagebox.showerror("Lỗi", f"Không thể đẩy lên Drive: {error_msg}")
                         
                 except Exception as e:
                     self.log_message_safe(f"❌ Lỗi upload: {str(e)}", "error")
@@ -2000,9 +2457,26 @@ class ExportViewDialog:
                                  font=('Segoe UI', 10))
             json_label.pack(anchor='w', padx=(20, 0), pady=(5, 0))
         
-        # Excel file
+        # Excel file(s)
         excel_path = self.export_results.get('excel_file_path', '')
-        if excel_path:
+        excel_files = self.export_results.get('excel_files', [])
+        file_type = self.export_results.get('file_type', 'single')
+        
+        if file_type == 'separate_files' and excel_files:
+            # Show multiple files for case 3
+            excel_label = tk.Label(info_frame,
+                                  text=f"📊 Excel files ({len(excel_files)} files):",
+                                  font=('Segoe UI', 10, 'bold'))
+            excel_label.pack(anchor='w', padx=(20, 0), pady=(2, 0))
+            
+            for excel_file in excel_files:
+                excel_name = os.path.basename(excel_file)
+                file_label = tk.Label(info_frame,
+                                     text=f"   • {excel_name}",
+                                     font=('Segoe UI', 9))
+                file_label.pack(anchor='w', padx=(40, 0), pady=(1, 0))
+        elif excel_path:
+            # Show single file for case 1 and case 2
             excel_name = os.path.basename(excel_path)
             excel_label = tk.Label(info_frame,
                                   text=f"📊 Excel: {excel_name}",

@@ -175,7 +175,7 @@ class GoogleSheetsViewer:
         
         # Action buttons với Google style
         self.refresh_btn = ttk.Button(left_toolbar, 
-                                     text="🔄 Refresh",
+                                     text="🔄 Làm mới",
                                      command=self.refresh_data)
         self.refresh_btn.pack(side='left', padx=(0, 8))
         

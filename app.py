@@ -1697,7 +1697,6 @@ class SchoolProcessApp:
     def _extract_drive_folder_id(self, drive_link):
         """Extract folder ID từ Google Drive link"""
         try:
-            
             # Patterns cho Drive folder links
             patterns = [
                 r'drive\.google\.com/drive/folders/([a-zA-Z0-9-_]+)',

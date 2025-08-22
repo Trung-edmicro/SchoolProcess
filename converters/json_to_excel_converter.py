@@ -66,17 +66,17 @@ class JSONToExcelTemplateConverter:
             
             # Extract school info từ cấu trúc unified workflow JSON
             school_info = {}
-            admin_password = '123456'  # default
+            admin_password = ''  # default
             
             if 'school_info' in self.json_data:
                 # Cấu trúc unified workflow: school_info ở cấp gốc
                 school_info = self.json_data.get('school_info', {})
-                admin_password = school_info.get('admin_password', school_info.get('password', '123456'))
+                admin_password = school_info.get('admin_password', school_info.get('password', ''))
             elif 'metadata' in self.json_data:
                 # Cấu trúc cũ: school_info trong metadata
                 metadata = self.json_data.get('metadata', {})
                 school_info = metadata.get('school_info', {})
-                admin_password = metadata.get('admin_password', '123456')
+                admin_password = metadata.get('admin_password', '')
             
             self.school_name = school_info.get('name', 'Unknown School')
             self.admin_email = school_info.get('admin_email', school_info.get('admin', ''))
@@ -757,7 +757,6 @@ class JSONToExcelTemplateConverter:
         
         return result_path
 
-
 def convert_json_to_excel_template(json_file_path: str, output_path: str = None, template_path: str = None):
     """
     Hàm tiện ích để chuyển đổi JSON sang Excel template format
@@ -773,25 +772,3 @@ def convert_json_to_excel_template(json_file_path: str, output_path: str = None,
     converter = JSONToExcelTemplateConverter(json_file_path, template_path)
     return converter.convert(output_path)
 
-
-if __name__ == "__main__":
-    # Test với file JSON workflow
-    print("🧪 TEST JSON TO EXCEL TEMPLATE CONVERTER")
-    print("=" * 50)
-    
-    # Đường dẫn file JSON (sử dụng file mới nhất)
-    json_files = [
-        "data/output/workflow_filtered_GDNN - GDTX TP Chí Linh_20250729_085609.json"
-    ]
-    
-    for json_file in json_files:
-        if os.path.exists(json_file):
-            print(f"\n🔄 Đang chuyển đổi: {json_file}")
-            result = convert_json_to_excel_template(json_file)
-            
-            if result:
-                print(f"✅ Thành công: {result}")
-            else:
-                print("❌ Chuyển đổi thất bại")
-        else:
-            print(f"❌ File không tồn tại: {json_file}")

@@ -4,20 +4,21 @@ Cấu hình API endpoints cho hệ thống OnLuyen
 Author: Assistant
 Date: 2025-07-26
 """
-
 import requests
 import json
 import os
 import base64
 import urllib3
 import time
-import pandas as pd
 import traceback
 import glob
+import unicodedata
+import pandas as pd
 
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from urllib.parse import urljoin
+from urllib.parse import quote
 
 @dataclass
 class APIEndpoint:
@@ -1279,20 +1280,26 @@ class OnLuyenAPIClient:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         return headers
     
-    def delete_teacher(self, teacher_id: str) -> Dict[str, Any]:
+    def delete_teacher(self, teacher_account: str) -> Dict[str, Any]:
         """
-        Xóa giáo viên theo ID
-        
+        Xóa giáo viên theo tài khoản
+
         Args:
-            teacher_id (str): ID của giáo viên cần xóa
-            
+            teacher_account (str): Tài khoản của giáo viên cần xóa
+
         Returns:
             Dict[str, Any]: Kết quả xóa
         """
         try:
-            url = f"{OnLuyenAPIConfig.get_school_api_base_url()}/api/teacher/{teacher_id}"
-            
-            response = self.session.delete(
+            endpoint = OnLuyenAPIConfig.get_endpoint("delete_teacher")
+            if not endpoint or not endpoint.url:
+                return {"success": False, "status_code": None, "data": None, "error": "Delete endpoint không được cấu hình"}
+
+            quoted_account = quote(teacher_account, safe='')
+            url = f"{endpoint.url.rstrip('/')}/{quoted_account}"
+
+            response = self.session.request(
+                method=endpoint.method or "DELETE",
                 url=url,
                 headers=self._get_auth_headers(),
                 timeout=OnLuyenAPIConfig.DEFAULT_TIMEOUT
@@ -1362,19 +1369,39 @@ class OnLuyenAPIClient:
             
             teachers_data = teachers_result.get("data", [])
             
-            # Xử lý trường hợp data là string thay vì list
-            if isinstance(teachers_data, str):
-                try:
-                    import json
-                    teachers_data = json.loads(teachers_data)
-                except json.JSONDecodeError:
-                    results["errors"].append(f"Dữ liệu giáo viên không đúng định dạng: {type(teachers_data)}")
-                    return results
-            
-            # Đảm bảo teachers_data là list
-            if not isinstance(teachers_data, list):
-                results["errors"].append(f"Dữ liệu giáo viên phải là danh sách, nhận được: {type(teachers_data)}")
+            # Normalize response: extract list from various possible shapes
+            def _extract_list_from_response(obj):
+                # direct list
+                if isinstance(obj, list):
+                    return obj
+                # JSON string -> try parse
+                if isinstance(obj, str):
+                    try:
+                        parsed = json.loads(obj)
+                        return _extract_list_from_response(parsed)
+                    except Exception:
+                        return None
+                # dict patterns
+                if isinstance(obj, dict):
+                    # common keys that hold list
+                    for key in ("data", "items", "rows", "results"):
+                        val = obj.get(key)
+                        if isinstance(val, list):
+                            return val
+                    # sometimes nested: obj['data'] is dict with 'data' list or similar
+                    for val in obj.values():
+                        if isinstance(val, list):
+                            return val
+                    return None
+                return None
+
+            teachers_list = _extract_list_from_response(teachers_result.get("data", teachers_result))
+            if teachers_list is None:
+                results["errors"].append(f"Dữ liệu giáo viên không đúng định dạng: {type(teachers_result.get('data'))}")
                 return results
+
+            # Use normalized list
+            teachers_data = teachers_list
             
             results["total_teachers"] = len(teachers_data)
             
@@ -1387,9 +1414,14 @@ class OnLuyenAPIClient:
             
             # 3. Xóa từng giáo viên
             for i, teacher in enumerate(teachers_data, 1):
-                teacher_id = teacher.get("id") or teacher.get("_id")
-                teacher_name = teacher.get("fullName", "Unknown")
-                teacher_account = teacher.get("account", "Unknown")
+                print(f"\n🔍 Xử lý giáo viên {teacher}:")
+
+                if isinstance(teacher, dict) and "teacherInfo" in teacher and isinstance(teacher["teacherInfo"], dict):
+                    teacher_obj = teacher["teacherInfo"]
+
+                teacher_id = teacher_obj.get("userId") or teacher_obj.get("_id")
+                teacher_name = teacher_obj.get("displayName", "Unknown")
+                teacher_account = teacher_obj.get("userName", "Unknown")
                 
                 if not teacher_id:
                     error_msg = f"Giáo viên {teacher_name} ({teacher_account}) không có ID"
@@ -1406,7 +1438,7 @@ class OnLuyenAPIClient:
                 print(f"🗑️ [{i}/{results['total_teachers']}] Xóa {teacher_name} ({teacher_account})...")
                 
                 # Xóa giáo viên
-                delete_result = self.delete_teacher(teacher_id)
+                delete_result = self.delete_teacher(teacher_account)
                 
                 if delete_result.get("success", False):
                     print(f"✅ Đã xóa {teacher_name}")
@@ -1470,9 +1502,6 @@ class OnLuyenAPIClient:
         Returns:
             Dict[str, Any]: Kết quả xóa có chọn lọc
         """
-        import pandas as pd
-        import time
-        import os
         
         results = {
             "success": False,
@@ -1501,10 +1530,19 @@ class OnLuyenAPIClient:
                 
                 # Tìm cột chứa tài khoản (có thể là 'account', 'username', 'tài khoản', v.v.)
                 account_column = None
-                possible_columns = ['account', 'username', 'tài khoản', 'tai_khoan', 'email']
+                possible_columns = ['Tên đăng nhập','account', 'username', 'tài khoản', 'tai_khoan', 'email',]
+                
+                def _normalize(s):
+                    s = str(s or '').strip().lower()
+                    # loại bỏ dấu (diacritics) để so sánh ổn định
+                    nfkd = unicodedata.normalize('NFKD', s)
+                    return ''.join(ch for ch in nfkd if not unicodedata.combining(ch))
+                
+                possible_norm = [_normalize(p) for p in possible_columns]
                 
                 for col in df.columns:
-                    if col.lower() in possible_columns or 'account' in col.lower() or 'username' in col.lower():
+                    col_norm = _normalize(col)
+                    if col_norm in possible_norm:
                         account_column = col
                         break
                 
@@ -1540,21 +1578,39 @@ class OnLuyenAPIClient:
             
             all_teachers = teachers_result.get("data", [])
             
-            # Xử lý trường hợp data là string thay vì list
-            if isinstance(all_teachers, str):
-                try:
-                    import json
-                    all_teachers = json.loads(all_teachers)
-                except json.JSONDecodeError:
-                    results["errors"].append(f"Dữ liệu giáo viên không đúng định dạng: {type(all_teachers)}")
-                    return results
-            
-            # Đảm bảo all_teachers là list
-            if not isinstance(all_teachers, list):
-                results["errors"].append(f"Dữ liệu giáo viên phải là danh sách, nhận được: {type(all_teachers)}")
+            # Normalize response: extract list from various possible shapes
+            def _extract_list_from_response(obj):
+                # direct list
+                if isinstance(obj, list):
+                    return obj
+                # JSON string -> try parse
+                if isinstance(obj, str):
+                    try:
+                        parsed = json.loads(obj)
+                        return _extract_list_from_response(parsed)
+                    except Exception:
+                        return None
+                # dict patterns
+                if isinstance(obj, dict):
+                    # common keys that hold list
+                    for key in ("data", "items", "rows", "results"):
+                        val = obj.get(key)
+                        if isinstance(val, list):
+                            return val
+                    # sometimes nested: obj['data'] is dict with 'data' list or similar
+                    for val in obj.values():
+                        if isinstance(val, list):
+                            return val
+                    return None
+                return None
+
+            teachers_list = _extract_list_from_response(teachers_result.get("data", teachers_result))
+            if teachers_list is None:
+                results["errors"].append(f"Dữ liệu giáo viên không đúng định dạng: {type(teachers_result.get('data'))}")
                 return results
-            
-            print(f"📊 Tìm thấy {len(all_teachers)} giáo viên trong hệ thống")
+
+            # Use normalized list
+            teachers_data = teachers_list
             
             # 5. Tìm matching giáo viên
             teachers_to_delete = []
@@ -1562,8 +1618,12 @@ class OnLuyenAPIClient:
             for account in accounts_to_delete:
                 found_teacher = None
                 
-                for teacher in all_teachers:
-                    teacher_account = teacher.get("account", "")
+                for teacher in teachers_data:
+                    if isinstance(teacher, dict) and "teacherInfo" in teacher and isinstance(teacher["teacherInfo"], dict):
+                        teacher_obj = teacher["teacherInfo"]
+
+                    teacher_account = teacher_obj.get("userName", "Unknown")
+
                     if teacher_account.lower() == account.lower():
                         found_teacher = teacher
                         break
@@ -1576,9 +1636,9 @@ class OnLuyenAPIClient:
             
             results["matched_teachers"] = len(teachers_to_delete)
             
-            print(f"🔍 Kết quả khớp:")
-            print(f"   ✅ Tìm thấy: {results['matched_teachers']}")
-            print(f"   ❓ Không tìm thấy: {results['not_found_count']}")
+            # print(f"🔍 Kết quả khớp:")
+            # print(f"   ✅ Tìm thấy: {results['matched_teachers']}")
+            # print(f"   ❓ Không tìm thấy: {results['not_found_count']}")
             
             if results["not_found_count"] > 0:
                 print(f"   📝 Danh sách không tìm thấy: {results['not_found_teachers']}")
@@ -1588,9 +1648,13 @@ class OnLuyenAPIClient:
                 print(f"\n🗑️ Bắt đầu xóa {results['matched_teachers']} giáo viên...")
                 
                 for i, teacher in enumerate(teachers_to_delete, 1):
-                    teacher_id = teacher.get("id") or teacher.get("_id")
-                    teacher_name = teacher.get("fullName", "Unknown")
-                    teacher_account = teacher.get("account", "Unknown")
+
+                    if isinstance(teacher, dict) and "teacherInfo" in teacher and isinstance(teacher["teacherInfo"], dict):
+                        teacher_obj = teacher["teacherInfo"]
+
+                    teacher_id = teacher_obj.get("userId") or teacher_obj.get("_id")
+                    teacher_name = teacher_obj.get("displayName", "Unknown")
+                    teacher_account = teacher_obj.get("userName", "Unknown")
                     
                     if not teacher_id:
                         error_msg = f"Giáo viên {teacher_name} ({teacher_account}) không có ID"
@@ -1607,7 +1671,7 @@ class OnLuyenAPIClient:
                     print(f"🗑️ [{i}/{results['matched_teachers']}] Xóa {teacher_name} ({teacher_account})...")
                     
                     # Xóa giáo viên
-                    delete_result = self.delete_teacher(teacher_id)
+                    delete_result = self.delete_teacher(teacher_account)
                     
                     if delete_result.get("success", False):
                         print(f"✅ Đã xóa {teacher_name}")
@@ -1628,21 +1692,21 @@ class OnLuyenAPIClient:
                             "account": teacher_account,
                             "error": delete_result.get('error')
                         })
-                    
+
                     # Chờ để tránh quá tải server
                     if delay_seconds > 0 and i < results["matched_teachers"]:
                         time.sleep(delay_seconds)
-            
+
             # 7. Kiểm tra kết quả
             results["success"] = results["failed_count"] == 0
             
-            print(f"\n📊 KẾT QUẢ XÓA CÓ CHỌN LỌC:")
-            print(f"   📂 File Excel: {excel_file_path}")
-            print(f"   📋 Tổng số tài khoản trong Excel: {results['total_from_excel']}")
-            print(f"   🔍 Tìm thấy trong hệ thống: {results['matched_teachers']}")
-            print(f"   ❓ Không tìm thấy: {results['not_found_count']}")
-            print(f"   ✅ Đã xóa thành công: {results['deleted_count']}")
-            print(f"   ❌ Thất bại: {results['failed_count']}")
+            # print(f"\n📊 KẾT QUẢ XÓA CÓ CHỌN LỌC:")
+            # print(f"   📂 File Excel: {excel_file_path}")
+            # print(f"   📋 Tổng số tài khoản trong Excel: {results['total_from_excel']}")
+            # print(f"   🔍 Tìm thấy trong hệ thống: {results['matched_teachers']}")
+            # print(f"   ❓ Không tìm thấy: {results['not_found_count']}")
+            # print(f"   ✅ Đã xóa thành công: {results['deleted_count']}")
+            # print(f"   ❌ Thất bại: {results['failed_count']}")
             
             if results["failed_count"] > 0:
                 print(f"\n❌ DANH SÁCH LỖI:")
@@ -1709,11 +1773,6 @@ def print_api_config_summary():
     for name, is_valid in validation_results.items():
         status = "✅ Valid" if is_valid else "❌ Invalid"
         print(f"   {name}: {status}")
-    
-    print(f"\n🔧 Environment Variables Used:")
-    print(f"   ONLUYEN_AUTH_BASE_URL = {os.getenv('ONLUYEN_AUTH_BASE_URL', 'default: https://auth.onluyen.vn')}")
-    print(f"   ONLUYEN_SCHOOL_API_BASE_URL = {os.getenv('ONLUYEN_SCHOOL_API_BASE_URL', 'default: https://school-api.onluyen.vn')}")
-
 
 if __name__ == "__main__":
     print_api_config_summary()
