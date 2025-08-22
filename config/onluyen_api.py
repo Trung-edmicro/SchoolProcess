@@ -10,6 +10,10 @@ import json
 import os
 import base64
 import urllib3
+import time
+import pandas as pd
+import traceback
+import glob
 
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
@@ -78,6 +82,13 @@ class OnLuyenAPIConfig:
                 url=f"{school_api_base}/school/list-student",
                 default_params={"pageIndex": 1, "pageSize": 15},
                 description="Lấy danh sách học sinh"
+            ),
+
+            "delete_teacher": APIEndpoint(
+                name="delete_teacher",
+                method="DELETE",
+                url=f"{school_api_base}/manage-user/delete-user",
+                description="Xóa giáo viên theo email"
             )
         }
     
@@ -1256,6 +1267,396 @@ class OnLuyenAPIClient:
                 "endpoint": endpoint.name
             }
     
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """
+        Lấy headers với authorization token
+        
+        Returns:
+            Dict[str, str]: Headers với authorization
+        """
+        headers = OnLuyenAPIConfig.DEFAULT_HEADERS.copy()
+        if self.auth_token:
+            headers["Authorization"] = f"Bearer {self.auth_token}"
+        return headers
+    
+    def delete_teacher(self, teacher_id: str) -> Dict[str, Any]:
+        """
+        Xóa giáo viên theo ID
+        
+        Args:
+            teacher_id (str): ID của giáo viên cần xóa
+            
+        Returns:
+            Dict[str, Any]: Kết quả xóa
+        """
+        try:
+            url = f"{OnLuyenAPIConfig.get_school_api_base_url()}/api/teacher/{teacher_id}"
+            
+            response = self.session.delete(
+                url=url,
+                headers=self._get_auth_headers(),
+                timeout=OnLuyenAPIConfig.DEFAULT_TIMEOUT
+            )
+            
+            response_data = {}
+            try:
+                response_data = response.json()
+            except:
+                response_data = {"message": response.text}
+            
+            return {
+                "success": response.status_code in [200, 204],
+                "status_code": response.status_code,
+                "data": response_data,
+                "error": None if response.status_code in [200, 204] else response_data.get("message", "Unknown error")
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "status_code": None,
+                "data": None,
+                "error": str(e)
+            }
+    
+    def bulk_delete_teachers(self, admin_email: str, admin_password: str, 
+                           school_year: int = 2025, delay_seconds: float = 0.5) -> Dict[str, Any]:
+        """
+        Xóa toàn bộ giáo viên trong trường
+        
+        Args:
+            admin_email (str): Email admin
+            admin_password (str): Mật khẩu admin
+            school_year (int): Năm học (mặc định 2025)
+            delay_seconds (float): Thời gian chờ giữa các request (giây)
+            
+        Returns:
+            Dict[str, Any]: Kết quả xóa hàng loạt
+        """
+        results = {
+            "success": False,
+            "total_teachers": 0,
+            "deleted_count": 0,
+            "failed_count": 0,
+            "errors": [],
+            "deleted_teachers": [],
+            "failed_teachers": []
+        }
+        
+        try:
+            # 1. Đảm bảo đăng nhập và token hợp lệ
+            print("🔐 Đăng nhập và kiểm tra token...")
+            login_success = self.ensure_valid_token(admin_email, admin_password, school_year)
+            
+            if not login_success:
+                results["errors"].append("Không thể đăng nhập hoặc xác thực token")
+                return results
+            
+            # 2. Lấy danh sách tất cả giáo viên
+            print("📋 Lấy danh sách tất cả giáo viên...")
+            teachers_result = self.get_teachers(page_size=1000)
+            
+            if not teachers_result.get("success", False):
+                results["errors"].append(f"Không thể lấy danh sách giáo viên: {teachers_result.get('error')}")
+                return results
+            
+            teachers_data = teachers_result.get("data", [])
+            
+            # Xử lý trường hợp data là string thay vì list
+            if isinstance(teachers_data, str):
+                try:
+                    import json
+                    teachers_data = json.loads(teachers_data)
+                except json.JSONDecodeError:
+                    results["errors"].append(f"Dữ liệu giáo viên không đúng định dạng: {type(teachers_data)}")
+                    return results
+            
+            # Đảm bảo teachers_data là list
+            if not isinstance(teachers_data, list):
+                results["errors"].append(f"Dữ liệu giáo viên phải là danh sách, nhận được: {type(teachers_data)}")
+                return results
+            
+            results["total_teachers"] = len(teachers_data)
+            
+            if results["total_teachers"] == 0:
+                print("ℹ️ Không có giáo viên nào để xóa")
+                results["success"] = True
+                return results
+            
+            print(f"📊 Tìm thấy {results['total_teachers']} giáo viên cần xóa")
+            
+            # 3. Xóa từng giáo viên
+            for i, teacher in enumerate(teachers_data, 1):
+                teacher_id = teacher.get("id") or teacher.get("_id")
+                teacher_name = teacher.get("fullName", "Unknown")
+                teacher_account = teacher.get("account", "Unknown")
+                
+                if not teacher_id:
+                    error_msg = f"Giáo viên {teacher_name} ({teacher_account}) không có ID"
+                    print(f"❌ {error_msg}")
+                    results["errors"].append(error_msg)
+                    results["failed_count"] += 1
+                    results["failed_teachers"].append({
+                        "name": teacher_name,
+                        "account": teacher_account,
+                        "error": "Missing ID"
+                    })
+                    continue
+                
+                print(f"🗑️ [{i}/{results['total_teachers']}] Xóa {teacher_name} ({teacher_account})...")
+                
+                # Xóa giáo viên
+                delete_result = self.delete_teacher(teacher_id)
+                
+                if delete_result.get("success", False):
+                    print(f"✅ Đã xóa {teacher_name}")
+                    results["deleted_count"] += 1
+                    results["deleted_teachers"].append({
+                        "id": teacher_id,
+                        "name": teacher_name,
+                        "account": teacher_account
+                    })
+                else:
+                    error_msg = f"Lỗi xóa {teacher_name}: {delete_result.get('error')}"
+                    print(f"❌ {error_msg}")
+                    results["failed_count"] += 1
+                    results["errors"].append(error_msg)
+                    results["failed_teachers"].append({
+                        "id": teacher_id,
+                        "name": teacher_name,
+                        "account": teacher_account,
+                        "error": delete_result.get('error')
+                    })
+                
+                # Chờ để tránh quá tải server
+                if delay_seconds > 0 and i < results["total_teachers"]:
+                    time.sleep(delay_seconds)
+            
+            # 4. Kiểm tra kết quả
+            results["success"] = results["failed_count"] == 0
+            
+            print(f"\n📊 KẾT QUẢ XÓA HÀNG LOẠT:")
+            print(f"   📚 Tổng số giáo viên: {results['total_teachers']}")
+            print(f"   ✅ Đã xóa thành công: {results['deleted_count']}")
+            print(f"   ❌ Thất bại: {results['failed_count']}")
+            
+            if results["failed_count"] > 0:
+                print(f"\n❌ DANH SÁCH LỖI:")
+                for error in results["errors"]:
+                    print(f"   • {error}")
+            
+            return results
+            
+        except Exception as e:
+            error_msg = f"Lỗi bulk delete: {str(e)}"
+            print(f"❌ {error_msg}")
+            results["errors"].append(error_msg)
+            return results
+    
+    def selective_delete_teachers_from_excel(self, excel_file_path: str, 
+                                           admin_email: str, admin_password: str,
+                                           school_year: int = 2025, 
+                                           delay_seconds: float = 0.5) -> Dict[str, Any]:
+        """
+        Xóa giáo viên dựa trên danh sách trong file Excel
+        
+        Args:
+            excel_file_path (str): Đường dẫn file Excel chứa danh sách giáo viên cần xóa
+            admin_email (str): Email admin
+            admin_password (str): Mật khẩu admin
+            school_year (int): Năm học (mặc định 2025)
+            delay_seconds (float): Thời gian chờ giữa các request (giây)
+            
+        Returns:
+            Dict[str, Any]: Kết quả xóa có chọn lọc
+        """
+        import pandas as pd
+        import time
+        import os
+        
+        results = {
+            "success": False,
+            "excel_file": excel_file_path,
+            "total_from_excel": 0,
+            "matched_teachers": 0,
+            "deleted_count": 0,
+            "failed_count": 0,
+            "not_found_count": 0,
+            "errors": [],
+            "deleted_teachers": [],
+            "failed_teachers": [],
+            "not_found_teachers": []
+        }
+        
+        try:
+            # 1. Kiểm tra file Excel
+            if not os.path.exists(excel_file_path):
+                results["errors"].append(f"File Excel không tồn tại: {excel_file_path}")
+                return results
+            
+            # 2. Đọc danh sách giáo viên từ Excel
+            print(f"📖 Đọc danh sách giáo viên từ: {excel_file_path}")
+            try:
+                df = pd.read_excel(excel_file_path)
+                
+                # Tìm cột chứa tài khoản (có thể là 'account', 'username', 'tài khoản', v.v.)
+                account_column = None
+                possible_columns = ['account', 'username', 'tài khoản', 'tai_khoan', 'email']
+                
+                for col in df.columns:
+                    if col.lower() in possible_columns or 'account' in col.lower() or 'username' in col.lower():
+                        account_column = col
+                        break
+                
+                if account_column is None:
+                    results["errors"].append("Không tìm thấy cột tài khoản trong Excel. Cần có cột: account, username, tài khoản, tai_khoan, hoặc email")
+                    return results
+                
+                # Lấy danh sách tài khoản cần xóa
+                accounts_to_delete = df[account_column].dropna().astype(str).tolist()
+                results["total_from_excel"] = len(accounts_to_delete)
+                
+                print(f"📊 Tìm thấy {results['total_from_excel']} tài khoản trong Excel")
+                
+            except Exception as e:
+                results["errors"].append(f"Lỗi đọc file Excel: {str(e)}")
+                return results
+            
+            # 3. Đảm bảo đăng nhập và token hợp lệ
+            print("🔐 Đăng nhập và kiểm tra token...")
+            login_success = self.ensure_valid_token(admin_email, admin_password, school_year)
+            
+            if not login_success:
+                results["errors"].append("Không thể đăng nhập hoặc xác thực token")
+                return results
+            
+            # 4. Lấy danh sách tất cả giáo viên từ hệ thống
+            print("📋 Lấy danh sách tất cả giáo viên từ hệ thống...")
+            teachers_result = self.get_teachers(page_size=1000)
+            
+            if not teachers_result.get("success", False):
+                results["errors"].append(f"Không thể lấy danh sách giáo viên: {teachers_result.get('error')}")
+                return results
+            
+            all_teachers = teachers_result.get("data", [])
+            
+            # Xử lý trường hợp data là string thay vì list
+            if isinstance(all_teachers, str):
+                try:
+                    import json
+                    all_teachers = json.loads(all_teachers)
+                except json.JSONDecodeError:
+                    results["errors"].append(f"Dữ liệu giáo viên không đúng định dạng: {type(all_teachers)}")
+                    return results
+            
+            # Đảm bảo all_teachers là list
+            if not isinstance(all_teachers, list):
+                results["errors"].append(f"Dữ liệu giáo viên phải là danh sách, nhận được: {type(all_teachers)}")
+                return results
+            
+            print(f"📊 Tìm thấy {len(all_teachers)} giáo viên trong hệ thống")
+            
+            # 5. Tìm matching giáo viên
+            teachers_to_delete = []
+            
+            for account in accounts_to_delete:
+                found_teacher = None
+                
+                for teacher in all_teachers:
+                    teacher_account = teacher.get("account", "")
+                    if teacher_account.lower() == account.lower():
+                        found_teacher = teacher
+                        break
+                
+                if found_teacher:
+                    teachers_to_delete.append(found_teacher)
+                else:
+                    results["not_found_count"] += 1
+                    results["not_found_teachers"].append(account)
+            
+            results["matched_teachers"] = len(teachers_to_delete)
+            
+            print(f"🔍 Kết quả khớp:")
+            print(f"   ✅ Tìm thấy: {results['matched_teachers']}")
+            print(f"   ❓ Không tìm thấy: {results['not_found_count']}")
+            
+            if results["not_found_count"] > 0:
+                print(f"   📝 Danh sách không tìm thấy: {results['not_found_teachers']}")
+            
+            # 6. Xóa từng giáo viên đã khớp
+            if results["matched_teachers"] > 0:
+                print(f"\n🗑️ Bắt đầu xóa {results['matched_teachers']} giáo viên...")
+                
+                for i, teacher in enumerate(teachers_to_delete, 1):
+                    teacher_id = teacher.get("id") or teacher.get("_id")
+                    teacher_name = teacher.get("fullName", "Unknown")
+                    teacher_account = teacher.get("account", "Unknown")
+                    
+                    if not teacher_id:
+                        error_msg = f"Giáo viên {teacher_name} ({teacher_account}) không có ID"
+                        print(f"❌ {error_msg}")
+                        results["errors"].append(error_msg)
+                        results["failed_count"] += 1
+                        results["failed_teachers"].append({
+                            "name": teacher_name,
+                            "account": teacher_account,
+                            "error": "Missing ID"
+                        })
+                        continue
+                    
+                    print(f"🗑️ [{i}/{results['matched_teachers']}] Xóa {teacher_name} ({teacher_account})...")
+                    
+                    # Xóa giáo viên
+                    delete_result = self.delete_teacher(teacher_id)
+                    
+                    if delete_result.get("success", False):
+                        print(f"✅ Đã xóa {teacher_name}")
+                        results["deleted_count"] += 1
+                        results["deleted_teachers"].append({
+                            "id": teacher_id,
+                            "name": teacher_name,
+                            "account": teacher_account
+                        })
+                    else:
+                        error_msg = f"Lỗi xóa {teacher_name}: {delete_result.get('error')}"
+                        print(f"❌ {error_msg}")
+                        results["failed_count"] += 1
+                        results["errors"].append(error_msg)
+                        results["failed_teachers"].append({
+                            "id": teacher_id,
+                            "name": teacher_name,
+                            "account": teacher_account,
+                            "error": delete_result.get('error')
+                        })
+                    
+                    # Chờ để tránh quá tải server
+                    if delay_seconds > 0 and i < results["matched_teachers"]:
+                        time.sleep(delay_seconds)
+            
+            # 7. Kiểm tra kết quả
+            results["success"] = results["failed_count"] == 0
+            
+            print(f"\n📊 KẾT QUẢ XÓA CÓ CHỌN LỌC:")
+            print(f"   📂 File Excel: {excel_file_path}")
+            print(f"   📋 Tổng số tài khoản trong Excel: {results['total_from_excel']}")
+            print(f"   🔍 Tìm thấy trong hệ thống: {results['matched_teachers']}")
+            print(f"   ❓ Không tìm thấy: {results['not_found_count']}")
+            print(f"   ✅ Đã xóa thành công: {results['deleted_count']}")
+            print(f"   ❌ Thất bại: {results['failed_count']}")
+            
+            if results["failed_count"] > 0:
+                print(f"\n❌ DANH SÁCH LỖI:")
+                for error in results["errors"]:
+                    print(f"   • {error}")
+            
+            return results
+            
+        except Exception as e:
+            error_msg = f"Lỗi selective delete: {str(e)}"
+            print(f"❌ {error_msg}")
+            results["errors"].append(error_msg)
+            return results
+    
     def test_connectivity(self) -> Dict[str, Any]:
         """
         Test kết nối đến các endpoints
@@ -1287,7 +1688,6 @@ class OnLuyenAPIClient:
                 }
         
         return results
-
 
 def print_api_config_summary():
     """In tóm tắt cấu hình API"""

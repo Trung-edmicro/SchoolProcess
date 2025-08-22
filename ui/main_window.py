@@ -295,6 +295,25 @@ class SchoolProcessMainWindow:
         # Separator
         separator2 = ttk.Separator(left_frame, orient='horizontal')
         separator2.pack(fill='x', pady=(0, 15))
+
+        # Delete functions
+        delete_label = ttk.Label(left_frame, text="Xóa dữ liệu:", style='Heading.TLabel')
+        delete_label.pack(pady=(0, 10), anchor='w')
+        
+        # Data retrieval section         
+        self.btn_get_teachers = ttk.Button(left_frame,
+                                          text="Xóa toàn bộ Giáo viên",
+                                          command=self.bulk_delete_teachers)
+        self.btn_get_teachers.pack(fill='x', pady=(0, 5))
+        
+        self.btn_get_students = ttk.Button(left_frame,
+                                          text="Xóa giáo viên chỉ định",
+                                          command=self.selective_delete_teachers)
+        self.btn_get_students.pack(fill='x', pady=(0, 5))
+
+        # Separator
+        separator2 = ttk.Separator(left_frame, orient='horizontal')
+        separator2.pack(fill='x', pady=(0, 15))
         
         # Settings section
         settings_label = ttk.Label(left_frame, text="Cài đặt", style='Heading.TLabel')
@@ -1593,6 +1612,301 @@ Ngày: 2025-07-29
         except Exception as e:
             self.log_message(f"Lỗi upload files: {str(e)}", "error")
             messagebox.showerror("Lỗi", f"Lỗi upload: {str(e)}")
+    
+    def bulk_delete_teachers(self):
+        """Xóa toàn bộ giáo viên trong trường"""
+        # Kiểm tra đã chọn trường chưa
+        selected_row_data = self.sheets_viewer.get_selected_row_data()
+        if not selected_row_data:
+            messagebox.showwarning("Cảnh báo", "Vui lòng chọn một trường từ danh sách trước!")
+            return
+        
+        school_name = selected_row_data.get('Tên trường', 'N/A')
+        
+        # Hiển thị xác nhận
+        result = messagebox.askyesno(
+            "Xác nhận xóa", 
+            f"⚠️ CẢNH BÁO: Bạn có chắc chắn muốn xóa TOÀN BỘ giáo viên?\n\n"
+            f"🏫 Trường: {school_name}\n\n"
+            f"Thao tác này KHÔNG THỂ HOÀN TÁC!\n\n"
+            f"Tất cả dữ liệu giáo viên sẽ bị xóa vĩnh viễn.",
+            icon='warning'
+        )
+        
+        if not result:
+            return
+        
+        # Hiển thị xác nhận lần 2
+        confirm = messagebox.askyesno(
+            "Xác nhận lần 2",
+            f"🔴 XÁC NHẬN LẦN CUỐI!\n\n"
+            f"🏫 Trường: {school_name}\n\n"
+            f"Bạn thực sự muốn xóa toàn bộ giáo viên?\n"
+            f"Không thể khôi phục sau khi xóa!",
+            icon='warning'
+        )
+        
+        if not confirm:
+            return
+        
+        try:
+            from config.onluyen_api import OnLuyenAPIClient
+            
+            # Lấy thông tin đăng nhập từ selected_row_data
+            admin_email = selected_row_data.get('Admin', '').strip()
+            admin_password = selected_row_data.get('Mật khẩu', '').strip()
+            
+            if not admin_email or not admin_password:
+                messagebox.showerror("Lỗi", f"Thiếu thông tin đăng nhập cho trường: {school_name}\nVui lòng kiểm tra cột Admin và Mật khẩu!")
+                return
+            
+            # Tạo progress dialog
+            progress_window = tk.Toplevel(self.root)
+            progress_window.title("Đang xóa giáo viên...")
+            progress_window.geometry("500x300")
+            progress_window.transient(self.root)
+            progress_window.grab_set()
+            
+            # Center progress window
+            progress_window.update_idletasks()
+            x = (progress_window.winfo_screenwidth() // 2) - (250)
+            y = (progress_window.winfo_screenheight() // 2) - (150)
+            progress_window.geometry(f"500x300+{x}+{y}")
+            
+            # Progress content
+            ttk.Label(progress_window, text=f"🗑️ Đang xóa toàn bộ giáo viên - {school_name}", font=('Arial', 12, 'bold')).pack(pady=10)
+            
+            progress_text = tk.Text(progress_window, height=10, width=60)
+            progress_text.pack(padx=10, pady=10, fill='both', expand=True)
+            
+            scrollbar = ttk.Scrollbar(progress_window, orient="vertical", command=progress_text.yview)
+            scrollbar.pack(side="right", fill="y")
+            progress_text.configure(yscrollcommand=scrollbar.set)
+            
+            def log_to_progress(message):
+                progress_text.insert(tk.END, message + "\n")
+                progress_text.see(tk.END)
+                progress_window.update()
+            
+            log_to_progress(f"🏫 Trường: {school_name}")
+            log_to_progress(f"👤 Admin: {admin_email}")
+            log_to_progress("🔄 Bắt đầu quá trình xóa hàng loạt...")
+            
+            # Thực hiện xóa
+            api_client = OnLuyenAPIClient()
+            
+            # Xóa hàng loạt
+            result = api_client.bulk_delete_teachers(
+                admin_email=admin_email,
+                admin_password=admin_password,
+                school_year=2025,
+                delay_seconds=0.3
+            )
+            
+            progress_window.destroy()
+            
+            # Hiển thị kết quả
+            if result.get('success', False):
+                messagebox.showinfo(
+                    "Thành công",
+                    f"✅ Đã xóa thành công!\n\n"
+                    f"🏫 Trường: {school_name}\n"
+                    f"📊 Tổng số giáo viên đã xóa: {result.get('deleted_count', 0)}\n"
+                    f"❌ Thất bại: {result.get('failed_count', 0)}"
+                )
+            else:
+                error_details = "\n".join(result.get('errors', []))
+                messagebox.showerror(
+                    "Thất bại",
+                    f"❌ Xóa thất bại!\n\n"
+                    f"🏫 Trường: {school_name}\n"
+                    f"📊 Đã xóa: {result.get('deleted_count', 0)}\n"
+                    f"❌ Thất bại: {result.get('failed_count', 0)}\n\n"
+                    f"Chi tiết lỗi:\n{error_details[:500]}..."
+                )
+            
+            # Log kết quả chi tiết
+            self.log_text_widget.insert(tk.END, f"\n{'='*50}\n")
+            self.log_text_widget.insert(tk.END, f"BULK DELETE TEACHERS RESULT\n")
+            self.log_text_widget.insert(tk.END, f"{'='*50}\n")
+            self.log_text_widget.insert(tk.END, f"Trường: {school_name}\n")
+            self.log_text_widget.insert(tk.END, f"Admin: {admin_email}\n")
+            self.log_text_widget.insert(tk.END, f"Thành công: {result.get('success', False)}\n")
+            self.log_text_widget.insert(tk.END, f"Tổng số giáo viên: {result.get('total_teachers', 0)}\n")
+            self.log_text_widget.insert(tk.END, f"Đã xóa: {result.get('deleted_count', 0)}\n")
+            self.log_text_widget.insert(tk.END, f"Thất bại: {result.get('failed_count', 0)}\n")
+            
+            if result.get('errors'):
+                self.log_text_widget.insert(tk.END, f"\nLỗi:\n")
+                for error in result.get('errors', []):
+                    self.log_text_widget.insert(tk.END, f"  - {error}\n")
+            
+            self.log_text_widget.see(tk.END)
+            
+        except Exception as e:
+            if 'progress_window' in locals():
+                progress_window.destroy()
+            messagebox.showerror("Lỗi", f"Có lỗi xảy ra: {str(e)}")
+            self.log_text_widget.insert(tk.END, f"\nLỗi bulk delete: {str(e)}\n")
+            self.log_text_widget.see(tk.END)
+
+    def selective_delete_teachers(self):
+        """Xóa giáo viên theo danh sách từ file Excel"""
+        # Kiểm tra đã chọn trường chưa
+        selected_row_data = self.sheets_viewer.get_selected_row_data()
+        if not selected_row_data:
+            messagebox.showwarning("Cảnh báo", "Vui lòng chọn một trường từ danh sách trước!")
+            return
+        
+        school_name = selected_row_data.get('Tên trường', 'N/A')
+        
+        # Chọn file Excel
+        file_path = filedialog.askopenfilename(
+            title="Chọn file Excel chứa danh sách giáo viên cần xóa",
+            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+        )
+        
+        if not file_path:
+            return
+        
+        # Hiển thị xác nhận
+        result = messagebox.askyesno(
+            "Xác nhận xóa",
+            f"⚠️ CẢNH BÁO: Bạn có chắc chắn muốn xóa các giáo viên?\n\n"
+            f"🏫 Trường: {school_name}\n"
+            f"📂 File: {os.path.basename(file_path)}\n\n"
+            f"Thao tác này KHÔNG THỂ HOÀN TÁC!\n"
+            f"Các giáo viên trong danh sách sẽ bị xóa vĩnh viễn.",
+            icon='warning'
+        )
+        
+        if not result:
+            return
+        
+        try:
+            from config.onluyen_api import OnLuyenAPIClient
+            
+            # Lấy thông tin đăng nhập từ selected_row_data
+            admin_email = selected_row_data.get('Admin', '').strip()
+            admin_password = selected_row_data.get('Mật khẩu', '').strip()
+            
+            if not admin_email or not admin_password:
+                messagebox.showerror("Lỗi", f"Thiếu thông tin đăng nhập cho trường: {school_name}\nVui lòng kiểm tra cột Admin và Mật khẩu!")
+                return
+            
+            # Tạo progress dialog
+            progress_window = tk.Toplevel(self.root)
+            progress_window.title("Đang xóa giáo viên chỉ định...")
+            progress_window.geometry("600x400")
+            progress_window.transient(self.root)
+            progress_window.grab_set()
+            
+            # Center progress window
+            progress_window.update_idletasks()
+            x = (progress_window.winfo_screenwidth() // 2) - (300)
+            y = (progress_window.winfo_screenheight() // 2) - (200)
+            progress_window.geometry(f"600x400+{x}+{y}")
+            
+            # Progress content
+            ttk.Label(progress_window, text=f"🗑️ Đang xóa giáo viên theo danh sách - {school_name}", font=('Arial', 12, 'bold')).pack(pady=10)
+            
+            progress_text = tk.Text(progress_window, height=15, width=70)
+            progress_text.pack(padx=10, pady=10, fill='both', expand=True)
+            
+            scrollbar = ttk.Scrollbar(progress_window, orient="vertical", command=progress_text.yview)
+            scrollbar.pack(side="right", fill="y")
+            progress_text.configure(yscrollcommand=scrollbar.set)
+            
+            def log_to_progress(message):
+                progress_text.insert(tk.END, message + "\n")
+                progress_text.see(tk.END)
+                progress_window.update()
+            
+            log_to_progress(f"🏫 Trường: {school_name}")
+            log_to_progress(f"👤 Admin: {admin_email}")
+            log_to_progress("🔄 Bắt đầu quá trình xóa có chọn lọc...")
+            log_to_progress(f"📂 File: {file_path}")
+            
+            # Thực hiện xóa
+            api_client = OnLuyenAPIClient()
+            
+            # Xóa có chọn lọc
+            result = api_client.selective_delete_teachers_from_excel(
+                excel_file_path=file_path,
+                admin_email=admin_email,
+                admin_password=admin_password,
+                school_year=2025,
+                delay_seconds=0.3
+            )
+            
+            progress_window.destroy()
+            
+            # Hiển thị kết quả
+            if result.get('success', False):
+                messagebox.showinfo(
+                    "Thành công",
+                    f"✅ Đã xóa thành công!\n\n"
+                    f"🏫 Trường: {school_name}\n"
+                    f"📂 File: {os.path.basename(file_path)}\n"
+                    f"📋 Tổng số tài khoản trong Excel: {result.get('total_from_excel', 0)}\n"
+                    f"🔍 Tìm thấy trong hệ thống: {result.get('matched_teachers', 0)}\n"
+                    f"✅ Đã xóa thành công: {result.get('deleted_count', 0)}\n"
+                    f"❓ Không tìm thấy: {result.get('not_found_count', 0)}\n"
+                    f"❌ Thất bại: {result.get('failed_count', 0)}"
+                )
+            else:
+                error_details = "\n".join(result.get('errors', []))
+                not_found = result.get('not_found_teachers', [])
+                not_found_text = f"\nKhông tìm thấy: {', '.join(not_found[:10])}" if not_found else ""
+                if len(not_found) > 10:
+                    not_found_text += f"... và {len(not_found) - 10} tài khoản khác"
+                
+                messagebox.showerror(
+                    "Hoàn thành với lỗi",
+                    f"⚠️ Xóa hoàn thành với một số lỗi!\n\n"
+                    f"🏫 Trường: {school_name}\n"
+                    f"📂 File: {os.path.basename(file_path)}\n"
+                    f"📋 Tổng số tài khoản trong Excel: {result.get('total_from_excel', 0)}\n"
+                    f"🔍 Tìm thấy: {result.get('matched_teachers', 0)}\n"
+                    f"✅ Đã xóa: {result.get('deleted_count', 0)}\n"
+                    f"❓ Không tìm thấy: {result.get('not_found_count', 0)}\n"
+                    f"❌ Thất bại: {result.get('failed_count', 0)}\n"
+                    f"{not_found_text}\n\n"
+                    f"Chi tiết lỗi:\n{error_details[:300]}..."
+                )
+            
+            # Log kết quả chi tiết
+            self.log_text_widget.insert(tk.END, f"\n{'='*50}\n")
+            self.log_text_widget.insert(tk.END, f"SELECTIVE DELETE TEACHERS RESULT\n")
+            self.log_text_widget.insert(tk.END, f"{'='*50}\n")
+            self.log_text_widget.insert(tk.END, f"Trường: {school_name}\n")
+            self.log_text_widget.insert(tk.END, f"Admin: {admin_email}\n")
+            self.log_text_widget.insert(tk.END, f"File: {file_path}\n")
+            self.log_text_widget.insert(tk.END, f"Thành công: {result.get('success', False)}\n")
+            self.log_text_widget.insert(tk.END, f"Tổng số tài khoản trong Excel: {result.get('total_from_excel', 0)}\n")
+            self.log_text_widget.insert(tk.END, f"Tìm thấy trong hệ thống: {result.get('matched_teachers', 0)}\n")
+            self.log_text_widget.insert(tk.END, f"Đã xóa: {result.get('deleted_count', 0)}\n")
+            self.log_text_widget.insert(tk.END, f"Không tìm thấy: {result.get('not_found_count', 0)}\n")
+            self.log_text_widget.insert(tk.END, f"Thất bại: {result.get('failed_count', 0)}\n")
+            
+            if result.get('not_found_teachers'):
+                self.log_text_widget.insert(tk.END, f"\nTài khoản không tìm thấy:\n")
+                for account in result.get('not_found_teachers', []):
+                    self.log_text_widget.insert(tk.END, f"  - {account}\n")
+            
+            if result.get('errors'):
+                self.log_text_widget.insert(tk.END, f"\nLỗi:\n")
+                for error in result.get('errors', []):
+                    self.log_text_widget.insert(tk.END, f"  - {error}\n")
+            
+            self.log_text_widget.see(tk.END)
+            
+        except Exception as e:
+            if 'progress_window' in locals():
+                progress_window.destroy()
+            messagebox.showerror("Lỗi", f"Có lỗi xảy ra: {str(e)}")
+            self.log_text_widget.insert(tk.END, f"\nLỗi selective delete: {str(e)}\n")
+            self.log_text_widget.see(tk.END)
     
     def run(self):
         """Chạy ứng dụng"""
