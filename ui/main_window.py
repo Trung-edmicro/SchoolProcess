@@ -1124,94 +1124,90 @@ class SchoolProcessMainWindow:
                 self.update_progress_safe(100, "Hoàn thành")
                 if created_files:
                     self.log_message_safe("🎉 Xuất 3 file riêng lẻ hoàn tất!", "success")
+                    # Hiển thị dialog thông báo
+                    try:
+                        # Ask user if they want to upload the created files to Drive (UI behavior like Case 1)
+                        drive_link = workflow_results.get('school_info', {}).get('drive_link', '')
+
+                        should_upload = messagebox.askyesno(
+                            "Upload lên Drive",
+                            "Bạn có muốn upload các file vừa tạo lên Google Drive (thư mục từ Drive link trong Google Sheets)?"
+                        )
+
+                        if should_upload:
+                            # Validate drive link if available, otherwise allow manual input
+                            folder_id = None
+                            if drive_link and 'drive.google.com' in drive_link and hasattr(app, '_extract_drive_folder_id'):
+                                folder_id = app._extract_drive_folder_id(drive_link)
+
+                            if not folder_id:
+                                manual = messagebox.askyesno(
+                                    "Drive link không hợp lệ",
+                                    "Drive link không hợp lệ hoặc không có. Bạn có muốn nhập Drive folder link thủ công?"
+                                )
+                                if manual:
+                                    manual_link = simpledialog.askstring("Drive link", "Nhập Google Drive folder link:")
+                                    if manual_link and 'drive.google.com' in manual_link and hasattr(app, '_extract_drive_folder_id'):
+                                        folder_id = app._extract_drive_folder_id(manual_link)
+                                        drive_link = manual_link
+
+                            if not folder_id:
+                                self.log_message_safe("⚠️ Bỏ qua upload: không có Drive folder hợp lệ", "warning")
+                            else:
+                                # Upload each created file via SchoolProcessApp.upload_to_drive
+                                upload_results = {"success": 0, "errors": []}
+                                files_to_upload = []
+                                for name in created_files:
+                                    p = output_dir / name
+                                    if p.exists():
+                                        files_to_upload.append(str(p))
+
+                                if not files_to_upload:
+                                    self.log_message_safe("⚠️ Không có file để upload", "warning")
+                                else:
+                                    self.log_message_safe(f"📤 Đang upload {len(files_to_upload)} file lên Drive...", "info")
+                                    for fpath in files_to_upload:
+                                        try:
+                                            res = app.upload_to_drive(
+                                                workflow_results.get('json_file_path', ''),
+                                                fpath,
+                                                drive_link,
+                                                school_name
+                                            )
+                                            if res.get('success', False):
+                                                upload_results["success"] = 1
+                                                # log returned URL if any
+                                                if res.get('urls'):
+                                                    self.log_message_safe(f"   ✅ Uploaded: {os.path.basename(fpath)} -> {res['urls'][0]}", "success")
+                                                else:
+                                                    self.log_message_safe(f"   ✅ Uploaded: {os.path.basename(fpath)}", "success")
+                                            else:
+                                                upload_results["errors"].append(f"{os.path.basename(fpath)}: {res.get('error', 'Unknown')}")
+                                                self.log_message_safe(f"   ❌ Upload failed: {os.path.basename(fpath)} - {res.get('error', 'Unknown')}", "error")
+                                        except Exception as e:
+                                            upload_results["errors"].append(f"{os.path.basename(fpath)}: {e}")
+                                            self.log_message_safe(f"   ❌ Upload exception: {os.path.basename(fpath)} - {e}", "error")
+
+                                    # Summary
+                                    self.log_message_safe(f"📊 Upload summary: {upload_results['success']}/{len(files_to_upload)} succeeded", "info")
+                    
+                        primary_file = str(output_dir / created_files[0]) if created_files else ''
+                        export_results = {
+                            'json_file_path': workflow_results.get('json_file_path', ''),
+                            'excel_file_path': primary_file,  
+                            'excel_files': [str(output_dir / name) for name in created_files],  
+                            'school_name': school_name,
+                            'drive_link': workflow_results.get('school_info', {}).get('drive_link', ''),
+                            'file_type': 'separate_files'  
+                        }
+                        
+                        self.root.after(0, lambda: self.show_export_dialog(export_results))
+                    except Exception as e:
+                        self.log_message_safe(f"   ❌ Error: {e}", "error")
+                    
                 else:
                     self.log_message_safe("⚠️ Không có file nào được tạo.", "warning")
 
-                # Hiển thị dialog thông báo
-                try:
-                    # Ask user if they want to upload the created files to Drive (UI behavior like Case 1)
-                    drive_link = workflow_results.get('school_info', {}).get('drive_link', '')
-
-                    should_upload = messagebox.askyesno(
-                        "Upload lên Drive",
-                        "Bạn có muốn upload các file vừa tạo lên Google Drive (thư mục từ Drive link trong Google Sheets)?"
-                    )
-
-                    if should_upload:
-                        # Validate drive link if available, otherwise allow manual input
-                        folder_id = None
-                        if drive_link and 'drive.google.com' in drive_link and hasattr(app, '_extract_drive_folder_id'):
-                            folder_id = app._extract_drive_folder_id(drive_link)
-
-                        if not folder_id:
-                            manual = messagebox.askyesno(
-                                "Drive link không hợp lệ",
-                                "Drive link không hợp lệ hoặc không có. Bạn có muốn nhập Drive folder link thủ công?"
-                            )
-                            if manual:
-                                manual_link = simpledialog.askstring("Drive link", "Nhập Google Drive folder link:")
-                                if manual_link and 'drive.google.com' in manual_link and hasattr(app, '_extract_drive_folder_id'):
-                                    folder_id = app._extract_drive_folder_id(manual_link)
-                                    drive_link = manual_link
-
-                        if not folder_id:
-                            self.log_message_safe("⚠️ Bỏ qua upload: không có Drive folder hợp lệ", "warning")
-                        else:
-                            # Upload each created file via SchoolProcessApp.upload_to_drive
-                            upload_results = {"success": 0, "errors": []}
-                            files_to_upload = []
-                            for name in created_files:
-                                p = output_dir / name
-                                if p.exists():
-                                    files_to_upload.append(str(p))
-
-                            if not files_to_upload:
-                                self.log_message_safe("⚠️ Không có file để upload", "warning")
-                            else:
-                                self.log_message_safe(f"📤 Đang upload {len(files_to_upload)} file lên Drive...", "info")
-                                for fpath in files_to_upload:
-                                    try:
-                                        res = app.upload_to_drive(
-                                            workflow_results.get('json_file_path', ''),
-                                            fpath,
-                                            drive_link,
-                                            school_name
-                                        )
-                                        if res.get('success', False):
-                                            upload_results["success"] = 1
-                                            # log returned URL if any
-                                            if res.get('urls'):
-                                                self.log_message_safe(f"   ✅ Uploaded: {os.path.basename(fpath)} -> {res['urls'][0]}", "success")
-                                            else:
-                                                self.log_message_safe(f"   ✅ Uploaded: {os.path.basename(fpath)}", "success")
-                                        else:
-                                            upload_results["errors"].append(f"{os.path.basename(fpath)}: {res.get('error', 'Unknown')}")
-                                            self.log_message_safe(f"   ❌ Upload failed: {os.path.basename(fpath)} - {res.get('error', 'Unknown')}", "error")
-                                    except Exception as e:
-                                        upload_results["errors"].append(f"{os.path.basename(fpath)}: {e}")
-                                        self.log_message_safe(f"   ❌ Upload exception: {os.path.basename(fpath)} - {e}", "error")
-
-                                # Summary
-                                self.log_message_safe(f"📊 Upload summary: {upload_results['success']}/{len(files_to_upload)} succeeded", "info")
-                
-                except Exception as e:
-                    self.log_message_safe(f"   ❌ Error: {e}", "error")
-
-                if created_files:
-                    primary_file = str(output_dir / created_files[0]) if created_files else ''
-                    
-                    export_results = {
-                        'json_file_path': workflow_results.get('json_file_path', ''),
-                        'excel_file_path': primary_file,  
-                        'excel_files': [str(output_dir / name) for name in created_files],  
-                        'school_name': school_name,
-                        'drive_link': workflow_results.get('school_info', {}).get('drive_link', ''),
-                        'file_type': 'separate_files'  
-                    }
-                    
-                    self.root.after(0, lambda: self.show_export_dialog(export_results))
-                else:
-                    messagebox.showwarning("Cảnh báo", "Không có file nào được tạo.")
 
                 # Log chi tiết
                 self.log_text_widget.insert(tk.END, f"\n{'='*50}\n")

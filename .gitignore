@@ -190,7 +190,7 @@ logs/
 log/
 
 # File temporary
-temp/
+
 tmp/
 *.tmp
 *.temp
